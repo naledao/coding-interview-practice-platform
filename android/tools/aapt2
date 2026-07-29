@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SYSROOT="/usr/x86_64-linux-gnu"
+AAPT2="${ANDROID_SDK_ROOT:-/usr/lib/android-sdk}/build-tools/36.1.0/aapt2"
+
+if [[ ! -x "$AAPT2" ]]; then
+  AAPT2="${ANDROID_SDK_ROOT:-/usr/lib/android-sdk}/build-tools/36.0.0/aapt2"
+fi
+
+if [[ ! -x "$AAPT2" ]]; then
+  echo "aapt2 executable not found" >&2
+  exit 127
+fi
+
+exec qemu-x86_64 -L "$SYSROOT" "$AAPT2" "$@"

@@ -1,0 +1,93 @@
+plugins {
+    id 'com.android.application'
+}
+
+def releaseEnv = { name ->
+    System.getenv("XQQ_RELEASE_${name}") ?: System.getenv("INTERVIEW_RELEASE_${name}")
+}
+
+android {
+    namespace 'xyz.kangnasi.interviewpractice'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'xyz.kangnasi.interviewpractice'
+        minSdk 26
+        targetSdk 36
+        versionCode 22
+        versionName '0.2.20'
+    }
+
+    def releaseStoreFile = releaseEnv('STORE_FILE')
+    def releaseStorePassword = releaseEnv('STORE_PASSWORD')
+    def releaseKeyAlias = releaseEnv('KEY_ALIAS')
+    def releaseKeyPassword = releaseEnv('KEY_PASSWORD')
+    def releaseSigningConfigured = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
+    signingConfigs {
+        release {
+            if (releaseSigningConfigured) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.14.0'
+    implementation 'androidx.core:core:1.13.1'
+}
+
+tasks.register('requireReleaseSigning') {
+    doLast {
+        if (!releaseEnv('STORE_FILE')
+                || !releaseEnv('STORE_PASSWORD')
+                || !releaseEnv('KEY_ALIAS')
+                || !releaseEnv('KEY_PASSWORD')) {
+            throw new GradleException('Release signing is not configured. Set XQQ_RELEASE_* or INTERVIEW_RELEASE_* signing environment variables.')
+        }
+    }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name == 'validateSigningRelease') {
+        task.dependsOn tasks.named('requireReleaseSigning')
+    }
+}
+
+def frontendDir = file('../../frontend')
+def webAssetsDir = file('src/main/assets/web')
+
+tasks.register('buildFrontend', Exec) {
+    workingDir frontendDir
+    commandLine 'npm', 'run', 'build'
+}
+
+tasks.register('syncWebAssets', Sync) {
+    dependsOn tasks.named('buildFrontend')
+    from file("${frontendDir}/dist")
+    into webAssetsDir
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('syncWebAssets')
+}

@@ -1,0 +1,96 @@
+server:
+  port: 8904
+
+spring:
+  application:
+    name: coding-interview-practice-platform-backend
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:8088/coding_interview_practice_platform?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:kangnasi}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:8090}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        auto-startup: ${APP_DOCUMENT_PARSE_RABBITMQ_ENABLED:true}
+  mail:
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:3475315488@qq.com}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+  ai:
+    mcp:
+      server:
+        enabled: true
+        name: interview-practice-platform
+        version: 0.1.0
+        protocol: STREAMABLE
+        request-timeout: 60s
+        instructions: 只能用于读取导入任务、读取上传文档、写入 Java 面试单选题和更新导入任务状态。
+        capabilities:
+          tool: true
+          resource: false
+          prompt: false
+          completion: false
+        streamable-http:
+          mcp-endpoint: /mcp
+
+app:
+  security:
+    jwt-secret: ${APP_JWT_SECRET:change-this-development-secret-at-least-32-bytes-long}
+    token-ttl-seconds: ${APP_TOKEN_TTL_SECONDS:0}
+  auth:
+    login-code-ttl-minutes: ${APP_LOGIN_CODE_TTL_MINUTES:5}
+    dev-login-code-enabled: ${APP_DEV_LOGIN_CODE_ENABLED:false}
+    dev-login-code: ${APP_DEV_LOGIN_CODE:123456}
+    max-login-failures: ${APP_MAX_LOGIN_FAILURES:5}
+    login-failure-lock-seconds: ${APP_LOGIN_FAILURE_LOCK_SECONDS:300}
+  mail:
+    from: ${APP_MAIL_FROM:${spring.mail.username}}
+  upload:
+    root: ${APP_UPLOAD_ROOT:runtime/uploads}
+    max-upload-bytes: ${APP_UPLOAD_MAX_BYTES:52428800}
+    max-markdown-bytes: ${APP_UPLOAD_MAX_MARKDOWN_BYTES:10485760}
+    max-zip-total-bytes: ${APP_UPLOAD_MAX_ZIP_TOTAL_BYTES:52428800}
+    max-zip-entry-count: ${APP_UPLOAD_MAX_ZIP_ENTRY_COUNT:200}
+  document-parse:
+    rabbitmq-enabled: ${APP_DOCUMENT_PARSE_RABBITMQ_ENABLED:true}
+    queue-name: ${APP_DOCUMENT_PARSE_QUEUE_NAME:document.upload.parse}
+  codex:
+    launch-enabled: ${APP_CODEX_LAUNCH_ENABLED:true}
+    command: ${APP_CODEX_COMMAND:codex}
+    sandbox: ${APP_CODEX_SANDBOX:workspace-write}
+    tool-base-url: ${APP_CODEX_TOOL_BASE_URL:http://127.0.0.1:${server.port}/api/codex-tools}
+    tool-token: ${APP_CODEX_TOOL_TOKEN:}
+    mcp-server-name: ${APP_CODEX_MCP_SERVER_NAME:interview_practice}
+    mcp-url: ${APP_CODEX_MCP_URL:http://127.0.0.1:${server.port}/mcp}
+    proxy-url: ${APP_CODEX_PROXY_URL:http://127.0.0.1:7890}
+    no-proxy: ${APP_CODEX_NO_PROXY:127.0.0.1,localhost,::1}
+    timeout-minutes: ${APP_CODEX_TIMEOUT_MINUTES:30}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration: OFF

@@ -1,0 +1,11 @@
+backend/target/
+frontend/node_modules/
+frontend/dist/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/web/
+runtime/
+*.log
+.env
+.DS_Store

@@ -1,0 +1,59 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:interview-test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+  ai:
+    mcp:
+      server:
+        enabled: false
+
+app:
+  security:
+    jwt-secret: test-secret-with-enough-length-for-hmac-signing
+    token-ttl-seconds: 0
+  auth:
+    login-code-ttl-minutes: 5
+    dev-login-code-enabled: true
+    dev-login-code: 123456
+    max-login-failures: 3
+    login-failure-lock-seconds: 300
+  mail:
+    from: test@example.com
+  upload:
+    root: target/test-uploads
+    max-upload-bytes: 52428800
+    max-markdown-bytes: 10485760
+    max-zip-total-bytes: 52428800
+    max-zip-entry-count: 200
+  document-parse:
+    rabbitmq-enabled: false
+    queue-name: document.upload.parse.test
+  codex:
+    launch-enabled: false
+    command: codex
+    sandbox: workspace-write
+    tool-base-url: http://127.0.0.1:8904/api/codex-tools
+    tool-token:
+    mcp-server-name: interview_practice
+    mcp-url: http://127.0.0.1:8904/mcp
+    proxy-url: http://127.0.0.1:7890
+    no-proxy: 127.0.0.1,localhost,::1
+    timeout-minutes: 30
+
+debug: false
+
+logging:
+  level:
+    root: WARN
+    org.springframework: WARN
+    org.hibernate: WARN
