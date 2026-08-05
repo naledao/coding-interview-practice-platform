@@ -1,12 +1,15 @@
 package xyz.kangnasi.interview.auth;
 
-import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.blankOrNullString;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -212,6 +215,17 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.service").value("coding-interview-practice-platform-backend"))
                 .andExpect(jsonPath("$.data.status").value("UP"));
+    }
+
+    @Test
+    void reactAdminWebIsServedByBackend() throws Exception {
+        mockMvc.perform(get("/admin"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/index.html"));
+
+        mockMvc.perform(get("/admin/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("<div id=\"root\"></div>")));
     }
 
     @Test

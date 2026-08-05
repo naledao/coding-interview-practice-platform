@@ -13,6 +13,7 @@ import AdminQuestionList from './views/AdminQuestionList.vue'
 import AdminUploadResult from './views/AdminUploadResult.vue'
 import AiSettingsView from './views/AiSettingsView.vue'
 import AnsweredQuestionsView from './views/AnsweredQuestionsView.vue'
+import ExcludedQuestionsView from './views/ExcludedQuestionsView.vue'
 import FavoritesView from './views/FavoritesView.vue'
 import LoginView from './views/LoginView.vue'
 import ProfileView from './views/ProfileView.vue'
@@ -20,7 +21,7 @@ import StatisticsView from './views/StatisticsView.vue'
 import UserHome from './views/UserHome.vue'
 import WrongBookView from './views/WrongBookView.vue'
 import { getToken, setRedirectAfterLogin } from './api'
-import { navigateTo } from './navigation'
+import { isAndroidApp, navigateTo } from './navigation'
 
 const pages = {
   'login.html': {
@@ -43,6 +44,11 @@ const pages = {
   'answered-questions.html': {
     component: AnsweredQuestionsView,
     pageKey: 'answered-questions',
+  },
+  'excluded-questions.html': {
+    component: ExcludedQuestionsView,
+    pageKey: 'excluded-questions',
+    appOnly: true,
   },
   'statistics.html': {
     component: StatisticsView,
@@ -116,6 +122,8 @@ if (pageName() === 'index.html') {
 } else if (!config.publicPage && !getToken()) {
   setRedirectAfterLogin(`${pageName()}${window.location.search}`)
   navigateTo('login.html', {}, true)
+} else if (config.appOnly && !isAndroidApp()) {
+  navigateTo('user.html', {}, true)
 } else {
   createApp(Shell, config).mount('#app')
 }

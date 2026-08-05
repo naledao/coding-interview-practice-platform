@@ -11,6 +11,11 @@ mvn spring-boot:run
 
 The service listens on `http://127.0.0.1:8904` by default.
 
+The React administration console is built automatically during the Maven
+lifecycle and is served by this service at `http://127.0.0.1:8904/admin`.
+For frontend development, run `npm --prefix ../admin-web run dev` and open
+`http://127.0.0.1:5174/admin/`.
+
 Development seed users:
 
 - `admin@example.com`, role `ADMIN`

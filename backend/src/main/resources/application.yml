@@ -2,6 +2,10 @@ server:
   port: 8904
 
 spring:
+  config:
+    import:
+      - "optional:file:./src/main/resources/.env[.properties]"
+      - "optional:file:./backend/src/main/resources/.env[.properties]"
   application:
     name: coding-interview-practice-platform-backend
   servlet:

@@ -72,6 +72,12 @@ public interface WrongQuestionRecordRepository extends JpaRepository<WrongQuesti
                   where record.user.id = :userId
                     and record.question.id = q.id
               ))
+              and not exists (
+                  select 1
+                  from ExcludedQuestion excluded
+                  where excluded.user.id = :userId
+                    and excluded.question.id = q.id
+              )
               and (:excludedQuestionId is null or q.id <> :excludedQuestionId)
             """)
     long countUnmasteredPracticeQuestionIds(
@@ -103,6 +109,12 @@ public interface WrongQuestionRecordRepository extends JpaRepository<WrongQuesti
                   where record.user.id = :userId
                     and record.question.id = q.id
               ))
+              and not exists (
+                  select 1
+                  from ExcludedQuestion excluded
+                  where excluded.user.id = :userId
+                    and excluded.question.id = q.id
+              )
               and (:excludedQuestionId is null or q.id <> :excludedQuestionId)
             order by wrong.lastWrongAt asc
             """)
@@ -136,6 +148,12 @@ public interface WrongQuestionRecordRepository extends JpaRepository<WrongQuesti
                   where record.user.id = :userId
                     and record.question.id = q.id
               ))
+              and not exists (
+                  select 1
+                  from ExcludedQuestion excluded
+                  where excluded.user.id = :userId
+                    and excluded.question.id = q.id
+              )
               and (:currentQuestionId is null or q.id > :currentQuestionId)
             order by wrong.lastWrongAt asc
             """)

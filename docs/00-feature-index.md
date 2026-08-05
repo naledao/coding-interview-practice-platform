@@ -16,6 +16,7 @@
 - 查看解析。
 - 自动沉淀错题。
 - 收藏题目。
+- 在 Android App 中屏蔽不想再出现的题目，并可恢复。
 - 查看学习统计。
 
 ### 管理员
@@ -53,6 +54,7 @@
 - `08-statistics.md`：学习统计功能。
 - `09-android-app.md`：安卓 WebView APP 功能。
 - `10-admin-job-monitor.md`：导入任务监控功能。
+- `11-react-admin-web.md`：由后端托管的 React 网页管理端。
 
 ## 4. 一期功能边界
 

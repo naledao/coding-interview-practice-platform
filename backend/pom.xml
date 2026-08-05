@@ -83,7 +83,58 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes>
+                    <exclude>.env</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/../admin-web/dist</directory>
+                <targetPath>static/admin</targetPath>
+            </resource>
+        </resources>
         <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>install-admin-web-dependencies</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>npm</executable>
+                            <workingDirectory>${project.basedir}/../admin-web</workingDirectory>
+                            <arguments>
+                                <argument>ci</argument>
+                                <argument>--prefer-offline</argument>
+                                <argument>--no-audit</argument>
+                                <argument>--no-fund</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>build-admin-web</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>npm</executable>
+                            <workingDirectory>${project.basedir}/../admin-web</workingDirectory>
+                            <arguments>
+                                <argument>run</argument>
+                                <argument>build</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

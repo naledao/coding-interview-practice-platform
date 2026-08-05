@@ -6,6 +6,7 @@ import {
   BookOpenCheck,
   BrainCircuit,
   ClipboardList,
+  EyeOff,
   FileText,
   FileUp,
   History,
@@ -38,6 +39,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  appOnly: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const user = ref(null)
@@ -56,6 +61,7 @@ const navItems = computed(() => [
   { page: 'wrong-book.html', label: '错题', icon: BookOpenCheck },
   { page: 'favorites.html', label: '收藏', icon: BookMarked },
   { page: 'answered-questions.html', label: '已做', icon: History },
+  { page: 'excluded-questions.html', label: '不再出现', icon: EyeOff, appOnly: true },
   { page: 'statistics.html', label: '统计', icon: BarChart3 },
   { page: 'ai-settings.html', label: 'AI 设置', icon: BrainCircuit },
   { page: 'admin.html', label: '管理', icon: Shield, admin: true },
@@ -65,7 +71,10 @@ const navItems = computed(() => [
   { page: 'admin-questions.html', label: '题库', icon: Library, admin: true },
   { page: 'profile.html', label: '我的', icon: UserRound },
 ])
-const visibleNavItems = computed(() => navItems.value.filter((item) => !item.admin || user.value?.role === 'ADMIN'))
+const visibleNavItems = computed(() => navItems.value.filter((item) => (
+  (!item.admin || user.value?.role === 'ADMIN')
+  && (!item.appOnly || isAndroidApp())
+)))
 
 async function refreshUser() {
   if (!getToken()) {

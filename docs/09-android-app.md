@@ -43,6 +43,7 @@ APP 内页面由 Vue 实现：
 - 刷题页。
 - 错题本页。
 - 收藏页。
+- “不再出现”题目管理页。
 - 搜索页。
 - 统计页。
 - 我的页。
@@ -159,6 +160,8 @@ AndroidBridge.openInstallPermissionSettings()
 - 可以提交答案。
 - 可以查看解析。
 - 错题本和收藏可用。
+- 可将当前题目设为“不再出现”，后续刷题不再选中。
+- 可在 App 内查看已屏蔽题目并恢复显示。
 - 返回键行为正常。
 - 网络异常时有提示。
 
@@ -182,6 +185,8 @@ AndroidBridge.openInstallPermissionSettings()
 - 管理员上传页 `<input type="file">` 的 Android 文件选择，限制 Markdown/ZIP 文件。
 - JS Bridge：`AndroidBridge.getAppVersion()`、`AndroidBridge.openInstallPermissionSettings()`。
 - 我的页展示 APP 版本、后端地址配置和安装权限入口。
+- 刷题页仅在 AndroidBridge 存在时展示“不再出现”操作，普通浏览器端不展示入口。
+- 已屏蔽题目页由独立 `ExcludedQuestionsActivity` 承载，支持分页查看和恢复。
 
 构建命令：
 

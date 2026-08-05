@@ -83,6 +83,12 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
                           where record.user.id = :userId
                             and record.question.id = q.id
                       ))
+                      and not exists (
+                          select 1
+                          from ExcludedQuestion excluded
+                          where excluded.user.id = :userId
+                            and excluded.question.id = q.id
+                      )
                       and (:excludedQuestionId is null or q.id <> :excludedQuestionId)
                     """
     )
@@ -112,6 +118,12 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
                   where record.user.id = :userId
                     and record.question.id = q.id
               ))
+              and not exists (
+                  select 1
+                  from ExcludedQuestion excluded
+                  where excluded.user.id = :userId
+                    and excluded.question.id = q.id
+              )
               and (:excludedQuestionId is null or q.id <> :excludedQuestionId)
             order by q.id asc
             """)
@@ -142,6 +154,12 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
                   where record.user.id = :userId
                     and record.question.id = q.id
               ))
+              and not exists (
+                  select 1
+                  from ExcludedQuestion excluded
+                  where excluded.user.id = :userId
+                    and excluded.question.id = q.id
+              )
               and (:currentQuestionId is null or q.id > :currentQuestionId)
             order by q.id asc
             """)

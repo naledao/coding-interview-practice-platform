@@ -382,6 +382,8 @@ public abstract class WebPageActivity extends Activity {
                 return FavoritesActivity.class;
             case "answered-questions.html":
                 return AnsweredQuestionsActivity.class;
+            case "excluded-questions.html":
+                return ExcludedQuestionsActivity.class;
             case "statistics.html":
                 return StatisticsActivity.class;
             case "ai-settings.html":

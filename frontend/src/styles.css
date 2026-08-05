@@ -1463,6 +1463,37 @@ button {
   background: #f3f6fa;
 }
 
+.practice-exclude-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+  background: #ffffff;
+}
+
+.practice-exclude-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.ai-panel-open .practice-exclude-button {
+  width: 28px;
+  min-height: 26px;
+  justify-content: center;
+  padding: 0;
+}
+
+.ai-panel-open .practice-exclude-button span {
+  display: none;
+}
+
 .difficulty-easy {
   color: #0f766e;
   background: #e2f7f1;
@@ -2417,6 +2448,24 @@ button {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #ffffff;
+}
+
+.excluded-question-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.excluded-question-hint {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  color: #475569;
+  background: #f1f5f9;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.excluded-restore-button {
+  white-space: nowrap;
 }
 
 .review-main {

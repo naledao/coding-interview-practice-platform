@@ -187,6 +187,84 @@ class QuestionControllerTest {
     }
 
     @Test
+    void userCanExcludeQuestionsFromEveryPracticeModeAndRestoreThem() throws Exception {
+        String suffix = String.valueOf(System.nanoTime());
+        String token = tokenFor("excluded-question-" + suffix + "@example.com");
+        String otherUserToken = tokenFor("excluded-question-other-" + suffix + "@example.com");
+        QuestionTag tag = createTag("不再出现测试" + suffix, "excluded-question-" + suffix, TagCategory.JAVA);
+        Question first = createQuestion("第一道可屏蔽题目？", QuestionDifficulty.EASY, List.of(tag));
+        Question second = createQuestion("第二道可屏蔽题目？", QuestionDifficulty.EASY, List.of(tag));
+
+        for (Question question : List.of(first, second)) {
+            mockMvc.perform(post("/api/favorites/{questionId}", question.getId())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                    .andExpect(status().isOk());
+            submitAnswer(token, question.getId(), "A", "WRONG");
+        }
+
+        mockMvc.perform(post("/api/excluded-questions/{questionId}", first.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.questionId").value(first.getId()))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.excludedAt").isNotEmpty());
+
+        mockMvc.perform(post("/api/excluded-questions/{questionId}", first.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/excluded-questions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].questionId").value(first.getId()));
+
+        for (String practiceMode : List.of("SEQUENTIAL", "RANDOM", "FAVORITE", "WRONG")) {
+            mockMvc.perform(get("/api/practice/count")
+                            .param("mode", practiceMode)
+                            .param("tagId", String.valueOf(tag.getId()))
+                            .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.total").value(1));
+
+            mockMvc.perform(get("/api/practice/next")
+                            .param("mode", practiceMode)
+                            .param("tagId", String.valueOf(tag.getId()))
+                            .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.id").value(second.getId()));
+        }
+
+        mockMvc.perform(get("/api/practice/next")
+                        .param("mode", "SEQUENTIAL")
+                        .param("tagId", String.valueOf(tag.getId()))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(otherUserToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(first.getId()));
+
+        mockMvc.perform(delete("/api/excluded-questions/{questionId}", first.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/excluded-questions/{questionId}", first.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/practice/count")
+                        .param("mode", "SEQUENTIAL")
+                        .param("tagId", String.valueOf(tag.getId()))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(2));
+
+        mockMvc.perform(get("/api/excluded-questions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(0)));
+    }
+
+    @Test
     void wrongPracticeCanRespectExcludeAnswered() throws Exception {
         String token = tokenFor("wrong-practice-exclude-" + System.nanoTime() + "@example.com");
         Question question = createQuestion(

@@ -10,6 +10,7 @@ const pages = [
   'wrong-book',
   'favorites',
   'answered-questions',
+  'excluded-questions',
   'statistics',
   'ai-settings',
   'admin',

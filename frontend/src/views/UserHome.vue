@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   Circle,
+  EyeOff,
   Filter,
   MessageSquareQuote,
   PanelRightClose,
@@ -19,6 +20,7 @@ import {
 } from '@lucide/vue'
 import {
   answerQuestion,
+  excludeQuestion,
   favoriteQuestion,
   fetchNextPracticeQuestion,
   fetchPracticeQuestionCount,
@@ -28,7 +30,7 @@ import {
 } from '../api'
 import { createAiChatCompletion, getAiSettings, isAiSettingsComplete } from '../aiSettings'
 import MarkdownContent from '../components/MarkdownContent.vue'
-import { getQuery, navigateTo } from '../navigation'
+import { getQuery, isAndroidApp, navigateTo } from '../navigation'
 
 defineProps({
   currentUser: {
@@ -52,6 +54,7 @@ const loadingQuestions = ref(false)
 const loadingDetail = ref(false)
 const submitting = ref(false)
 const favoriteSubmitting = ref(false)
+const excludeSubmitting = ref(false)
 const errorMessage = ref('')
 const noticeMessage = ref('')
 const keyword = ref('')
@@ -81,6 +84,7 @@ let aiAbortController = null
 let aiScrollFrame = null
 let splitPointerId = null
 let nextAiMessageId = 1
+const androidApp = isAndroidApp()
 
 const AI_SYSTEM_MESSAGE = `你是 Java 面试刷题应用中的 AI 助教。请围绕用户提供的题目和追问进行准确、清晰的讲解。
 使用 Markdown 组织回答；涉及代码时使用带语言标识的代码块。不要假设用户已经提交答案，除非用户明确要求，否则先解释思路，再给出结论。`
@@ -240,6 +244,32 @@ async function toggleFavorite() {
     errorMessage.value = error.message
   } finally {
     favoriteSubmitting.value = false
+  }
+}
+
+async function excludeCurrentQuestion() {
+  if (!androidApp || !selectedQuestion.value || excludeSubmitting.value) {
+    return
+  }
+  const confirmed = window.confirm('确定让这道题以后不再出现吗？\n\n可以在 App 的“不再出现”页面恢复。')
+  if (!confirmed) {
+    return
+  }
+
+  excludeSubmitting.value = true
+  errorMessage.value = ''
+  noticeMessage.value = ''
+  try {
+    await excludeQuestion(selectedQuestion.value.id)
+    await loadNextQuestion()
+    await loadQuestionSummary()
+    noticeMessage.value = selectedQuestion.value
+      ? '已设为不再出现，并切换到下一题'
+      : '已设为不再出现，当前条件下暂无其他题目'
+  } catch (error) {
+    errorMessage.value = error.message
+  } finally {
+    excludeSubmitting.value = false
   }
 }
 
@@ -653,6 +683,17 @@ async function sendAiMessage() {
             <span v-for="tag in visibleQuestionTags" :key="tag.id" class="practice-chip chip-tag">{{ tag.name }}</span>
             <span v-if="hiddenTagCount" class="practice-chip chip-muted">+{{ hiddenTagCount }}</span>
             <span class="practice-chip chip-muted">{{ questionAnswered ? '已做' : '未做' }}</span>
+            <button
+              v-if="androidApp"
+              class="practice-exclude-button"
+              type="button"
+              :disabled="excludeSubmitting"
+              aria-label="让这道题不再出现"
+              @click="excludeCurrentQuestion"
+            >
+              <EyeOff :size="17" />
+              <span>{{ excludeSubmitting ? '处理中' : '不再出现' }}</span>
+            </button>
           </div>
 
           <article class="focus-question-card">

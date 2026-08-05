@@ -25,6 +25,7 @@
         <activity android:name=".WrongBookActivity" android:configChanges="keyboardHidden|orientation|screenSize" android:exported="false" />
         <activity android:name=".FavoritesActivity" android:configChanges="keyboardHidden|orientation|screenSize" android:exported="false" />
         <activity android:name=".AnsweredQuestionsActivity" android:configChanges="keyboardHidden|orientation|screenSize" android:exported="false" />
+        <activity android:name=".ExcludedQuestionsActivity" android:configChanges="keyboardHidden|orientation|screenSize" android:exported="false" />
         <activity android:name=".StatisticsActivity" android:configChanges="keyboardHidden|orientation|screenSize" android:exported="false" />
         <activity android:name=".AiSettingsActivity" android:configChanges="keyboardHidden|orientation|screenSize" android:exported="false" />
         <activity android:name=".AdminActivity" android:configChanges="keyboardHidden|orientation|screenSize" android:exported="false" />

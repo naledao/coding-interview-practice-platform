@@ -58,6 +58,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/send-login-code").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
+                        .requestMatchers("/admin", "/admin/**").permitAll()
                         .requestMatchers("/api/codex-tools/**").permitAll()
                         .requestMatchers("/mcp/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

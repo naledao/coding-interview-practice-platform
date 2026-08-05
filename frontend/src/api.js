@@ -290,6 +290,23 @@ export function fetchAnsweredQuestions(page = 1, pageSize = 20) {
   return apiRequest(`/api/practice/answered-questions?${params}`)
 }
 
+export function fetchExcludedQuestions(page = 1, pageSize = 20) {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  return apiRequest(`/api/excluded-questions?${params}`)
+}
+
+export function excludeQuestion(questionId) {
+  return apiRequest(`/api/excluded-questions/${questionId}`, {
+    method: 'POST',
+  })
+}
+
+export function restoreExcludedQuestion(questionId) {
+  return apiRequest(`/api/excluded-questions/${questionId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function masterWrongQuestion(questionId) {
   return apiRequest(`/api/wrong-questions/${questionId}/master`, {
     method: 'POST',
