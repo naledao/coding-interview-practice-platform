@@ -89,6 +89,9 @@ export async function apiRequest(path, options = {}) {
       headers,
     })
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw error
+    }
     throw new Error('网络连接失败，请检查后端服务或网络后重试')
   }
 
@@ -406,4 +409,101 @@ export function fetchStatisticsTags(sort = '') {
 export function fetchStatisticsDaily(days = 7) {
   const params = new URLSearchParams({ days: String(days) })
   return apiRequest(`/api/statistics/daily?${params}`)
+}
+
+export function fetchAiTutorModels() {
+  return apiRequest('/api/ai-tutor/models')
+}
+
+export function createAiTutorRun(payload, { signal } = {}) {
+  return apiRequest('/api/ai-tutor/runs', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    signal,
+  })
+}
+
+export function cancelAiTutorRun(runId) {
+  return apiRequest(`/api/ai-tutor/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: 'POST',
+  })
+}
+
+export async function streamAiTutorRun(runId, { afterId = 0, signal, onEvent } = {}) {
+  const params = new URLSearchParams({ afterId: String(afterId) })
+  const headers = new Headers({ Accept: 'application/x-ndjson' })
+  const token = getToken()
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  let response
+  try {
+    response = await fetch(
+      resolveApiPath(`/api/ai-tutor/runs/${encodeURIComponent(runId)}/events/stream?${params}`),
+      { headers, signal },
+    )
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw error
+    }
+    throw new Error('AI 助教事件流连接失败，请稍后重试')
+  }
+
+  if (response.status === 401) {
+    clearToken()
+    window.dispatchEvent(new CustomEvent('auth-expired'))
+  }
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    throw new Error(payload?.message || `AI 助教请求失败（HTTP ${response.status}）`)
+  }
+  if (!response.body) {
+    throw new Error('当前环境无法读取 AI 助教流式响应')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let lastEventId = afterId
+
+  const consumeLine = async (line) => {
+    if (!line.trim()) {
+      return true
+    }
+    let event
+    try {
+      event = JSON.parse(line)
+    } catch {
+      throw new Error('AI 助教返回了无效的事件数据')
+    }
+    if (Number.isFinite(Number(event?.eventId))) {
+      lastEventId = Number(event.eventId)
+    }
+    return (await onEvent?.(event)) !== false
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!(await consumeLine(line))) {
+          await reader.cancel()
+          return lastEventId
+        }
+      }
+      if (done) {
+        break
+      }
+    }
+    if (buffer.trim()) {
+      await consumeLine(buffer)
+    }
+    return lastEventId
+  } finally {
+    reader.releaseLock()
+  }
 }

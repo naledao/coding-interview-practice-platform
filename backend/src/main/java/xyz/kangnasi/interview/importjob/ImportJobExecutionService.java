@@ -26,6 +26,7 @@ public class ImportJobExecutionService {
     private final ImportJobLogRepository importJobLogRepository;
     private final KnowledgeDocumentRepository documentRepository;
     private final TransactionTemplate transactionTemplate;
+    private final CodexQuestionGenerationPrompt questionGenerationPrompt;
     private final String codexCommand;
     private final String sandboxMode;
     private final String toolBaseUrl;
@@ -42,6 +43,7 @@ public class ImportJobExecutionService {
             ImportJobLogRepository importJobLogRepository,
             KnowledgeDocumentRepository documentRepository,
             TransactionTemplate transactionTemplate,
+            CodexQuestionGenerationPrompt questionGenerationPrompt,
             @Value("${app.codex.command:codex}") String codexCommand,
             @Value("${app.codex.sandbox:workspace-write}") String sandboxMode,
             @Value("${app.codex.tool-base-url:http://127.0.0.1:8904/api/codex-tools}") String toolBaseUrl,
@@ -57,6 +59,7 @@ public class ImportJobExecutionService {
         this.importJobLogRepository = importJobLogRepository;
         this.documentRepository = documentRepository;
         this.transactionTemplate = transactionTemplate;
+        this.questionGenerationPrompt = questionGenerationPrompt;
         this.codexCommand = codexCommand;
         this.sandboxMode = sandboxMode;
         this.toolBaseUrl = toolBaseUrl;
@@ -219,7 +222,7 @@ public class ImportJobExecutionService {
             command.add("-c");
             command.add("mcp_servers." + mcpServerName + ".default_tools_approval_mode=\"approve\"");
         }
-        command.add(buildPrompt(importJobId));
+        command.add(questionGenerationPrompt.render(importJobId, mcpServerName));
         return command;
     }
 
@@ -258,61 +261,5 @@ public class ImportJobExecutionService {
             String message = line.length() > 1000 ? line.substring(0, 1000) : line;
             importJobLogRepository.save(ImportJobLog.create(importJobId, ImportJobLogLevel.INFO, message, null));
         });
-    }
-
-    private String buildPrompt(Long importJobId) {
-        return """
-                你是 Java 面试题库生产代理。
-
-                任务 importJobId=%d。必须联网搜索资料，并只能生成 Java 面试单选题。
-
-                你必须通过名为 %s 的 MCP server 完成读写库操作，不能直接连接数据库或调用项目后端的普通业务接口。
-
-                可用 MCP 工具：
-                1. get_import_job(importJobId)
-                2. get_generated_question_count(importJobId)
-                3. get_recommended_tags()
-                4. mark_import_job_running(importJobId)
-                5. read_import_document(importJobId)
-                6. append_generation_log(importJobId, level, message, payload)
-                7. validate_question_batch(importJobId, questions)
-                8. create_question_batch(importJobId, questions)
-                9. mark_import_job_succeeded(importJobId, generatedQuestionCount, summary)
-                10. mark_import_job_failed(importJobId, reason)
-
-                请处理 importJobId=%d 的导入任务：
-                1. 通过 MCP 工具读取导入任务和 Markdown 文档。
-                2. 提取适合 Java 面试的知识点。
-                3. 对每个知识点联网搜索资料，补充并校验事实。
-                4. 生成单选题，每题 4 个选项，且只有 1 个正确答案。
-                5. 对每道题进行自我 review，修正不准确、模糊或存在多个正确答案的问题。
-                6. 为每道题添加 1 到 5 个标签。
-                7. 通过 create_question_batch MCP 工具分批写入题库。
-                8. 更新导入任务状态。
-
-                create_question_batch 每题 JSON 必须包含：
-                stem、difficulty(EASY/MEDIUM/HARD)、knowledgePoint、answerAnalysis、codexReviewSummary、tags、options。
-                options 必须恰好包含 A/B/C/D 四项，且只有一个 correct=true。
-
-                自我 review 必须逐题确认：
-                - 题干清楚。
-                - 只有一个正确答案。
-                - 正确答案和解析一致。
-                - 错误选项明确错误。
-                - 不存在会导致答案变化的 Java 版本差异或已说明版本边界。
-                - 标签准确，难度合理。
-
-                禁止：
-                - 生成多选题、判断题、简答题。
-                - 生成无明确答案的题。
-                - 生成多个选项都合理的题。
-                - 直接编造无法校验的技术结论。
-
-                如果失败，必须通过 append_generation_log MCP 工具写明原因，并调用 mark_import_job_failed MCP 工具。
-                """.formatted(
-                importJobId,
-                mcpServerName,
-                importJobId
-        );
     }
 }

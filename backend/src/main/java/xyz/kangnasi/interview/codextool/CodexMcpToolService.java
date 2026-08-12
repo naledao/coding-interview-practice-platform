@@ -38,7 +38,7 @@ public class CodexMcpToolService {
 
     @McpTool(
             name = "get_recommended_tags",
-            description = "读取推荐标签列表，用于给 Java 面试单选题打标签。无参数。"
+            description = "读取推荐标签列表，用于给 Java 后端或 Java 智能体面试单选题打标签。无参数。"
     )
     public GetRecommendedTagsToolResponse getRecommendedTags() {
         return codexToolService.getRecommendedTags();
@@ -74,7 +74,7 @@ public class CodexMcpToolService {
 
     @McpTool(
             name = "validate_question_batch",
-            description = "校验一批 Java 面试单选题，不写入数据库。每题必须有 stem、difficulty、knowledgePoint、answerAnalysis、codexReviewSummary、tags、options。"
+            description = "校验一批 Java 后端或 Java 智能体面试单选题，不写入数据库。每题必须有 stem、difficulty、knowledgePoint、answerAnalysis、codexReviewSummary、tags、options。"
     )
     public ValidateQuestionBatchToolResponse validateQuestionBatch(
             @McpToolParam(description = "导入任务 ID") Long importJobId,
@@ -85,7 +85,7 @@ public class CodexMcpToolService {
 
     @McpTool(
             name = "create_question_batch",
-            description = "分批写入 Java 面试单选题。每题 4 个 A/B/C/D 选项且只有一个 correct=true。"
+            description = "分批写入 Java 后端或 Java 智能体面试单选题。每题 4 个 A/B/C/D 选项且只有一个 correct=true。"
     )
     public CreateQuestionBatchToolResponse createQuestionBatch(
             @McpToolParam(description = "导入任务 ID") Long importJobId,

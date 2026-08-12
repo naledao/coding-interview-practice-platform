@@ -7,5 +7,6 @@ public enum TagCategory {
     MIDDLEWARE,
     NETWORK,
     DESIGN,
+    AI,
     OTHER
 }

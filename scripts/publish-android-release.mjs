@@ -1,28 +1,40 @@
-import { createHash, createHmac } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
-import { basename, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const rootDir = resolve(import.meta.dirname, '..')
 const androidDir = resolve(rootDir, 'android')
 const apkPath = resolve(androidDir, 'app/build/outputs/apk/release/app-release.apk')
-const bucket = process.env.INTERVIEW_MINIO_BUCKET || 'interview-practice-platform'
-const prefix = process.env.INTERVIEW_MINIO_PREFIX || 'android/releases'
-const endpoint = process.env.INTERVIEW_MINIO_ENDPOINT || 'http://127.0.0.1:8084'
-const publicBaseUrl = process.env.INTERVIEW_MINIO_PUBLIC_BASE_URL || 'http://frp.kangnasi.xyz:8084'
-const accessKeyId = process.env.MINIO_ROOT_USER || process.env.INTERVIEW_MINIO_ACCESS_KEY
-const secretAccessKey = process.env.MINIO_ROOT_PASSWORD || process.env.INTERVIEW_MINIO_SECRET_KEY
-const region = process.env.INTERVIEW_MINIO_REGION || 'us-east-1'
+const legacyManifestSyncScript = resolve(rootDir, 'scripts/sync-legacy-android-release.mjs')
+const serviceBaseUrl = trimTrailingSlash(
+  process.env.APP_RELEASE_INTERNAL_BASE_URL || 'http://127.0.0.1:8962',
+)
+const internalApiBaseUrl = `${serviceBaseUrl}/api/app/internal/v1`
+const publicBaseUrl = trimTrailingSlash(
+  process.env.APP_RELEASE_PUBLIC_BASE_URL || 'http://frp.kangnasi.xyz:8960',
+)
+const internalToken = process.env.APP_RELEASE_INTERNAL_TOKEN
+const appKey = process.env.APP_RELEASE_APP_KEY || 'interview-practice-platform'
+const appName = process.env.APP_RELEASE_APP_NAME || 'Java 面试刷题'
+const publisher = process.env.APP_RELEASE_PUBLISHER || 'kangnasi'
+const applicationIdentifier = 'xyz.kangnasi.interviewpractice'
 const versionName = process.env.INTERVIEW_ANDROID_VERSION_NAME || readGradleValue('versionName')
 const versionCode = Number(process.env.INTERVIEW_ANDROID_VERSION_CODE || readGradleValue('versionCode'))
-const releaseNotes = process.env.INTERVIEW_RELEASE_NOTES || '新增版本更新能力，优化 Android 多页面体验。'
+const releaseNotes = process.env.INTERVIEW_RELEASE_NOTES
+  || '新增 AI 助教，支持本机 Codex Chat Service、动态模型与 Effort 选择。'
+const apkFileName = `interview-practice-${versionName}-${versionCode}.apk`
 const expectedSignerSha256 = normalizeCertDigest(
-  process.env.INTERVIEW_RELEASE_CERT_SHA256 ||
-    '2cbb2532e6794f1706cd93407254939055b9ce35768a4b31d332cacf511ae6f2',
+  process.env.INTERVIEW_RELEASE_CERT_SHA256
+    || '2cbb2532e6794f1706cd93407254939055b9ce35768a4b31d332cacf511ae6f2',
 )
+const legacyManifestSyncEnabled = process.env.INTERVIEW_LEGACY_MANIFEST_SYNC !== 'false'
 
-if (!accessKeyId || !secretAccessKey) {
-  throw new Error('Missing MinIO credentials. Set MINIO_ROOT_USER/MINIO_ROOT_PASSWORD or INTERVIEW_MINIO_ACCESS_KEY/INTERVIEW_MINIO_SECRET_KEY.')
+if (!internalToken) {
+  throw new Error('Missing APP_RELEASE_INTERNAL_TOKEN.')
+}
+if (!Number.isSafeInteger(versionCode) || versionCode <= 0) {
+  throw new Error(`Invalid Android versionCode: ${versionCode}`)
 }
 
 run('gradle', ['assembleRelease'], { cwd: androidDir })
@@ -31,35 +43,181 @@ verifyReleaseSignature()
 const apk = await readFile(apkPath)
 const apkStat = await stat(apkPath)
 const apkSha256 = createHash('sha256').update(apk).digest('hex')
-const versionDir = `${prefix}/v${versionCode}`
-const apkObjectKey = `${versionDir}/interview-practice-${versionName}-${versionCode}.apk`
-const latestObjectKey = `${prefix}/latest.json`
-const downloadUrl = `${publicBaseUrl.replace(/\/+$/, '')}/${bucket}/${apkObjectKey}`
-const manifest = {
-  appId: 'xyz.kangnasi.interviewpractice',
+
+const app = await findOrCreateApp()
+const track = await findOrCreateTrack(app.appId)
+const release = await findOrCreateRelease(track.trackId)
+const artifact = await findOrCreateArtifact(release)
+const verifiedArtifact = await uploadArtifactIfNeeded(release, artifact, apk, apkStat.size, apkSha256)
+const publishedRelease = await publishReleaseIfNeeded(release)
+const downloadUrl = `${publicBaseUrl}/api/app/v1/apps/${appKey}/artifacts/${verifiedArtifact.artifactId}/download`
+
+if (legacyManifestSyncEnabled) {
+  run(process.execPath, [legacyManifestSyncScript])
+}
+
+console.log(JSON.stringify({
+  appKey,
+  platform: track.platform,
+  channel: track.channel,
+  releaseId: publishedRelease.releaseId,
+  artifactId: verifiedArtifact.artifactId,
   versionCode,
   versionName,
   releaseNotes,
-  fileName: basename(apkObjectKey),
-  fileSize: apkStat.size,
-  sha256: apkSha256,
+  fileName: verifiedArtifact.fileName,
+  fileSize: verifiedArtifact.fileSize,
+  sha256: verifiedArtifact.sha256,
   downloadUrl,
-  publishedAt: new Date().toISOString(),
+  status: publishedRelease.status,
+  legacyManifestSynced: legacyManifestSyncEnabled,
+}, null, 2))
+
+async function findOrCreateApp() {
+  const apps = await api('/apps')
+  const existing = apps.find((item) => item.appKey === appKey)
+  if (existing) {
+    return existing
+  }
+  return api('/apps', {
+    method: 'POST',
+    body: { appKey, name: appName, publisher },
+  })
 }
 
-await ensureBucket()
-await putObject(apkObjectKey, apk, 'application/vnd.android.package-archive')
-await putObject(latestObjectKey, Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`), 'application/json; charset=utf-8')
-await putObject(`${versionDir}/latest.json`, Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`), 'application/json; charset=utf-8')
-await setPublicPolicy()
+async function findOrCreateTrack(appId) {
+  const tracks = await api(`/apps/${appId}/tracks`)
+  const existing = tracks.find((item) => item.platform === 'android' && item.channel === 'stable')
+  if (existing) {
+    if (existing.applicationIdentifier !== applicationIdentifier
+        || existing.verificationMode !== 'platform-signature') {
+      throw new Error('Existing Android stable track configuration does not match this app.')
+    }
+    return existing
+  }
+  return api(`/apps/${appId}/tracks`, {
+    method: 'POST',
+    body: {
+      platform: 'android',
+      channel: 'stable',
+      applicationIdentifier,
+      verificationMode: 'platform-signature',
+    },
+  })
+}
 
-console.log(JSON.stringify(manifest, null, 2))
+async function findOrCreateRelease(trackId) {
+  const releases = await api(`/tracks/${trackId}/releases`)
+  const existing = releases.find((item) => Number(item.releaseSequence) === versionCode)
+  if (existing) {
+    if (existing.versionName !== versionName) {
+      throw new Error(`Release sequence ${versionCode} already has versionName ${existing.versionName}.`)
+    }
+    return existing
+  }
+  return api(`/tracks/${trackId}/releases`, {
+    method: 'POST',
+    body: {
+      releaseSequence: versionCode,
+      versionName,
+      releaseNotes,
+      mandatory: false,
+      minimumSupportedSequence: null,
+    },
+  })
+}
+
+async function findOrCreateArtifact(release) {
+  const artifacts = await api(`/releases/${release.releaseId}/artifacts`)
+  const existing = artifacts.find((item) => item.architecture === 'universal'
+    && item.packageType === 'apk' && item.variant === 'default')
+  if (existing) {
+    return existing
+  }
+  if (release.status !== 'draft') {
+    throw new Error(`Published release ${versionCode} has no universal APK artifact.`)
+  }
+  return api(`/releases/${release.releaseId}/artifacts`, {
+    method: 'POST',
+    body: {
+      architecture: 'universal',
+      packageType: 'apk',
+      variant: 'default',
+      fileName: apkFileName,
+      fileExtension: 'apk',
+      contentType: 'application/vnd.android.package-archive',
+      minimumOsVersion: null,
+      maximumOsVersion: null,
+      installerSchemaVersion: 1,
+    },
+  })
+}
+
+async function uploadArtifactIfNeeded(release, artifact, apk, apkSize, apkSha256) {
+  if (artifact.status === 'verified') {
+    if (artifact.fileSize !== apkSize || artifact.sha256 !== apkSha256) {
+      throw new Error(`Verified artifact ${artifact.artifactId} does not match the local APK.`)
+    }
+    return artifact
+  }
+  if (release.status !== 'draft' || artifact.status !== 'draft') {
+    throw new Error(`Artifact ${artifact.artifactId} cannot be uploaded from status ${artifact.status}.`)
+  }
+
+  const ticket = await api(`/artifacts/${artifact.artifactId}/upload-ticket`, { method: 'POST' })
+  const uploadResponse = await fetch(ticket.uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': artifact.contentType,
+      'Content-Length': String(apkSize),
+    },
+    body: apk,
+  })
+  if (!uploadResponse.ok) {
+    throw new Error(`Artifact upload failed: HTTP ${uploadResponse.status}`)
+  }
+
+  return api(`/artifacts/${artifact.artifactId}/complete`, {
+    method: 'POST',
+    body: { expectedSize: apkSize, expectedSha256: apkSha256 },
+  })
+}
+
+async function publishReleaseIfNeeded(release) {
+  if (release.status === 'published') {
+    return release
+  }
+  if (release.status !== 'draft') {
+    throw new Error(`Release ${release.releaseId} cannot be published from status ${release.status}.`)
+  }
+  return api(`/releases/${release.releaseId}/publish`, { method: 'POST' })
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(`${internalApiBaseUrl}${path}`, {
+    method: options.method || 'GET',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-App-Internal-Token': internalToken,
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(`App release API ${options.method || 'GET'} ${path} failed: HTTP ${response.status} ${text}`)
+  }
+  return text ? JSON.parse(text) : null
+}
 
 function readGradleValue(name) {
-  const buildGradle = spawnSync('sed', ['-n', '1,80p', resolve(androidDir, 'app/build.gradle')], {
+  const result = spawnSync('sed', ['-n', '1,80p', resolve(androidDir, 'app/build.gradle')], {
     encoding: 'utf8',
-  }).stdout
-  const match = buildGradle.match(new RegExp(`${name}\\s+['"]?([^'"\\n]+)['"]?`))
+  })
+  if (result.status !== 0) {
+    throw new Error(`Cannot read android/app/build.gradle: ${result.stderr}`)
+  }
+  const match = result.stdout.match(new RegExp(`${name}\\s+['\"]?([^'\"\\n]+)['\"]?`))
   if (!match) {
     throw new Error(`Cannot read ${name} from android/app/build.gradle`)
   }
@@ -98,128 +256,6 @@ function normalizeCertDigest(value) {
   return value.replace(/[^0-9a-f]/gi, '').toLowerCase()
 }
 
-async function ensureBucket() {
-  const response = await signedFetch('', { method: 'HEAD' })
-  if (response.status === 404) {
-    const createResponse = await signedFetch('', { method: 'PUT' })
-    if (!createResponse.ok) {
-      throw new Error(`Create bucket failed: ${createResponse.status} ${await createResponse.text()}`)
-    }
-    return
-  }
-  if (!response.ok) {
-    throw new Error(`Check bucket failed: ${response.status} ${await response.text()}`)
-  }
-}
-
-async function putObject(key, body, contentType) {
-  const response = await signedFetch(key, {
-    method: 'PUT',
-    body,
-    headers: {
-      'content-type': contentType,
-      'content-length': String(body.length),
-    },
-  })
-  if (!response.ok) {
-    throw new Error(`Upload ${key} failed: ${response.status} ${await response.text()}`)
-  }
-}
-
-async function setPublicPolicy() {
-  const policy = {
-    Version: '2012-10-17',
-    Statement: [
-      {
-        Effect: 'Allow',
-        Principal: { AWS: ['*'] },
-        Action: ['s3:GetObject'],
-        Resource: [`arn:aws:s3:::${bucket}/${prefix}/*`],
-      },
-    ],
-  }
-  const response = await signedFetch('?policy', {
-    method: 'PUT',
-    body: Buffer.from(JSON.stringify(policy)),
-    headers: {
-      'content-type': 'application/json',
-    },
-  })
-  if (!response.ok) {
-    throw new Error(`Set public policy failed: ${response.status} ${await response.text()}`)
-  }
-}
-
-async function signedFetch(objectKey, options = {}) {
-  const endpointUrl = new URL(endpoint)
-  const url = new URL(endpointUrl)
-  if (objectKey.startsWith('?')) {
-    url.pathname = `/${bucket}`
-    url.search = objectKey
-  } else {
-    url.pathname = `/${bucket}${objectKey ? `/${objectKey}` : ''}`
-  }
-  const headers = new Headers(options.headers || {})
-  const body = options.body || Buffer.alloc(0)
-  const payloadHash = createHash('sha256').update(body).digest('hex')
-  const now = new Date()
-  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '')
-  const dateStamp = amzDate.slice(0, 8)
-
-  headers.set('host', url.host)
-  headers.set('x-amz-content-sha256', payloadHash)
-  headers.set('x-amz-date', amzDate)
-
-  const method = options.method || 'GET'
-  const canonicalUri = encodeURI(url.pathname).replace(/%2F/g, '/')
-  const canonicalQueryString = canonicalQuery(url.searchParams)
-  const signedHeaders = [...headers.keys()].map((key) => key.toLowerCase()).sort()
-  const canonicalHeaders = signedHeaders
-    .map((key) => `${key}:${headers.get(key).trim().replace(/\s+/g, ' ')}\n`)
-    .join('')
-  const canonicalRequest = [
-    method,
-    canonicalUri,
-    canonicalQueryString,
-    canonicalHeaders,
-    signedHeaders.join(';'),
-    payloadHash,
-  ].join('\n')
-  const scope = `${dateStamp}/${region}/s3/aws4_request`
-  const stringToSign = [
-    'AWS4-HMAC-SHA256',
-    amzDate,
-    scope,
-    createHash('sha256').update(canonicalRequest).digest('hex'),
-  ].join('\n')
-  const signingKey = getSignatureKey(secretAccessKey, dateStamp, region, 's3')
-  const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex')
-  headers.set(
-    'authorization',
-    `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders.join(';')}, Signature=${signature}`,
-  )
-
-  return fetch(url, {
-    method,
-    headers,
-    body: method === 'HEAD' ? undefined : body,
-  })
-}
-
-function getSignatureKey(key, dateStamp, regionName, serviceName) {
-  const kDate = hmac(`AWS4${key}`, dateStamp)
-  const kRegion = hmac(kDate, regionName)
-  const kService = hmac(kRegion, serviceName)
-  return hmac(kService, 'aws4_request')
-}
-
-function hmac(key, data) {
-  return createHmac('sha256', key).update(data).digest()
-}
-
-function canonicalQuery(searchParams) {
-  return [...searchParams.entries()]
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-    .sort()
-    .join('&')
+function trimTrailingSlash(value) {
+  return value.replace(/\/+$/, '')
 }

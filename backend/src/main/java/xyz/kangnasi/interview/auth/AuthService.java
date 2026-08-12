@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import xyz.kangnasi.interview.common.AppException;
+import xyz.kangnasi.interview.email.EmailServiceGateway;
 import xyz.kangnasi.interview.user.AppUser;
 import xyz.kangnasi.interview.user.UserRepository;
 import xyz.kangnasi.interview.user.UserRole;
@@ -22,7 +23,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final TokenBlacklist tokenBlacklist;
     private final LoginCodeStore loginCodeStore;
-    private final MailLoginCodeSender mailLoginCodeSender;
+    private final EmailServiceGateway emailServiceGateway;
     private final LoginFailureLimiter loginFailureLimiter;
     private final SecureRandom secureRandom = new SecureRandom();
     private final int loginCodeTtlMinutes;
@@ -36,7 +37,7 @@ public class AuthService {
             JwtService jwtService,
             TokenBlacklist tokenBlacklist,
             LoginCodeStore loginCodeStore,
-            MailLoginCodeSender mailLoginCodeSender,
+            EmailServiceGateway emailServiceGateway,
             LoginFailureLimiter loginFailureLimiter,
             @Value("${app.auth.login-code-ttl-minutes}") int loginCodeTtlMinutes,
             @Value("${app.auth.dev-login-code-enabled:false}") boolean devLoginCodeEnabled,
@@ -48,7 +49,7 @@ public class AuthService {
         this.jwtService = jwtService;
         this.tokenBlacklist = tokenBlacklist;
         this.loginCodeStore = loginCodeStore;
-        this.mailLoginCodeSender = mailLoginCodeSender;
+        this.emailServiceGateway = emailServiceGateway;
         this.loginFailureLimiter = loginFailureLimiter;
         this.loginCodeTtlMinutes = loginCodeTtlMinutes;
         this.devLoginCodeEnabled = devLoginCodeEnabled;
@@ -62,7 +63,12 @@ public class AuthService {
         String code = devLoginCodeEnabled && !isBlank(devLoginCode) ? devLoginCode : generateNumericCode();
 
         if (!devLoginCodeEnabled) {
-            mailLoginCodeSender.send(email, code, loginCodeTtlMinutes);
+            emailServiceGateway.send(
+                    "LOGIN_CODE",
+                    email,
+                    "登录验证码",
+                    "您的登录验证码为：" + code + "，" + loginCodeTtlMinutes + "分钟内有效。"
+            );
         }
 
         loginCodeStore.put(email, code, Instant.now().plusSeconds(loginCodeTtlMinutes * 60L));

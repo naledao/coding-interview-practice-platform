@@ -8,6 +8,7 @@ import {
   Circle,
   EyeOff,
   Filter,
+  GripHorizontal,
   MessageSquareQuote,
   PanelRightClose,
   RefreshCw,
@@ -28,7 +29,12 @@ import {
   fetchTags,
   unfavoriteQuestion,
 } from '../api'
-import { createAiChatCompletion, getAiSettings, isAiSettingsComplete } from '../aiSettings'
+import {
+  createAiTutorCompletion,
+  getAiSettings,
+  isAiSettingsComplete,
+  loadAiConfiguration,
+} from '../aiSettings'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import { getQuery, isAndroidApp, navigateTo } from '../navigation'
 
@@ -40,8 +46,11 @@ defineProps({
 })
 
 const SPLIT_STORAGE_KEY = 'practice-ai-split-percent'
+const AI_INPUT_HEIGHT_STORAGE_KEY = 'practice-ai-input-height'
 const SPLITTER_WIDTH = 12
 const MIN_PANE_WIDTH = 124
+const MIN_AI_INPUT_HEIGHT = 82
+const DEFAULT_AI_INPUT_HEIGHT = 112
 
 const tags = ref([])
 const selectedQuestion = ref(null)
@@ -74,20 +83,24 @@ const aiErrorMessage = ref('')
 const initialAiSettings = getAiSettings()
 const aiConfigured = ref(isAiSettingsComplete(initialAiSettings))
 const aiModelName = ref(initialAiSettings.model)
+const aiEffort = ref(initialAiSettings.effort)
+const aiConversationId = ref(null)
 const aiMessageList = ref(null)
 const practicePage = ref(null)
+const aiInputHeight = ref(loadAiInputHeight())
+const aiInputResizing = ref(false)
 const splitPercent = ref(loadSplitPercent())
 const splitLimits = ref({ min: 24, max: 76 })
 const splitResizing = ref(false)
 let timerId = null
 let aiAbortController = null
 let aiScrollFrame = null
+let aiInputResizePointerId = null
+let aiInputResizeStartHeight = 0
+let aiInputResizeStartY = 0
 let splitPointerId = null
 let nextAiMessageId = 1
 const androidApp = isAndroidApp()
-
-const AI_SYSTEM_MESSAGE = `你是 Java 面试刷题应用中的 AI 助教。请围绕用户提供的题目和追问进行准确、清晰的讲解。
-使用 Markdown 组织回答；涉及代码时使用带语言标识的代码块。不要假设用户已经提交答案，除非用户明确要求，否则先解释思路，再给出结论。`
 
 const correctOptionKey = computed(() => answerResult.value?.correctOptionKey || '')
 const currentQuestionNumber = computed(() => Math.max(1, answeredInSession.value + (answerResult.value ? 0 : 1)))
@@ -157,6 +170,7 @@ onMounted(async () => {
   window.addEventListener('focus', refreshAiConfiguration)
   window.addEventListener('resize', clampSplitToViewport)
   clampSplitToViewport()
+  refreshAiConfiguration()
   await Promise.all([loadTags(), loadQuestionSummary()])
   if (queryQuestionId) {
     await openQuestion({ id: queryQuestionId })
@@ -171,6 +185,7 @@ onBeforeUnmount(() => {
   }
   window.removeEventListener('focus', refreshAiConfiguration)
   window.removeEventListener('resize', clampSplitToViewport)
+  stopAiInputResize()
   stopSplitResize()
   aiAbortController?.abort()
   if (aiScrollFrame !== null) {
@@ -399,16 +414,26 @@ function optionClass(option) {
   }
 }
 
-function refreshAiConfiguration() {
-  const settings = getAiSettings()
-  aiConfigured.value = isAiSettingsComplete(settings)
-  aiModelName.value = settings.model
+async function refreshAiConfiguration() {
+  try {
+    const { settings } = await loadAiConfiguration({ persist: true })
+    aiConfigured.value = true
+    aiModelName.value = settings.model
+    aiEffort.value = settings.effort
+    return true
+  } catch {
+    aiConfigured.value = false
+    return false
+  }
 }
 
-function openAiPanel() {
-  refreshAiConfiguration()
+async function openAiPanel() {
   aiPanelOpen.value = true
   nextTick(clampSplitToViewport)
+  const configured = await refreshAiConfiguration()
+  if (!configured) {
+    aiErrorMessage.value = 'AI 助教模型目录暂时不可用'
+  }
 }
 
 function closeAiPanel() {
@@ -449,6 +474,7 @@ function setSplitPercent(value, persist = false) {
 
 function clampSplitToViewport() {
   setSplitPercent(splitPercent.value)
+  clampAiInputHeightToViewport()
 }
 
 function updateSplitFromPointer(event) {
@@ -517,6 +543,102 @@ function resetSplit() {
   setSplitPercent(50, true)
 }
 
+function loadAiInputHeight() {
+  try {
+    const value = Number(window.localStorage.getItem(AI_INPUT_HEIGHT_STORAGE_KEY))
+    return Number.isFinite(value) ? value : DEFAULT_AI_INPUT_HEIGHT
+  } catch {
+    return DEFAULT_AI_INPUT_HEIGHT
+  }
+}
+
+function maxAiInputHeight() {
+  return Math.max(
+    MIN_AI_INPUT_HEIGHT,
+    Math.min(360, Math.floor((window.innerHeight || 800) * 0.45)),
+  )
+}
+
+function setAiInputHeight(value, persist = false) {
+  aiInputHeight.value = Math.min(
+    maxAiInputHeight(),
+    Math.max(MIN_AI_INPUT_HEIGHT, Number(value) || DEFAULT_AI_INPUT_HEIGHT),
+  )
+  if (persist) {
+    try {
+      window.localStorage.setItem(AI_INPUT_HEIGHT_STORAGE_KEY, String(aiInputHeight.value))
+    } catch {
+      // localStorage may be unavailable in a restricted WebView.
+    }
+  }
+}
+
+function clampAiInputHeightToViewport() {
+  setAiInputHeight(aiInputHeight.value)
+}
+
+function updateAiInputHeightFromPointer(event) {
+  if (event.pointerId !== aiInputResizePointerId) {
+    return
+  }
+  setAiInputHeight(aiInputResizeStartHeight + event.clientY - aiInputResizeStartY)
+}
+
+function startAiInputResize(event) {
+  if (event.pointerType === 'mouse' && event.button !== 0) {
+    return
+  }
+  aiInputResizePointerId = event.pointerId
+  aiInputResizeStartHeight = aiInputHeight.value
+  aiInputResizeStartY = event.clientY
+  aiInputResizing.value = true
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+  document.documentElement.classList.add('ai-input-resizing')
+  event.preventDefault()
+}
+
+function finishAiInputResize(event) {
+  if (event && event.pointerId !== aiInputResizePointerId) {
+    return
+  }
+  if (event && event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+  const wasResizing = aiInputResizing.value
+  stopAiInputResize()
+  if (wasResizing) {
+    setAiInputHeight(aiInputHeight.value, true)
+  }
+}
+
+function stopAiInputResize() {
+  aiInputResizePointerId = null
+  aiInputResizing.value = false
+  document.documentElement.classList.remove('ai-input-resizing')
+}
+
+function handleAiInputResizeKeydown(event) {
+  const step = event.shiftKey ? 32 : 16
+  let nextHeight = aiInputHeight.value
+  if (event.key === 'ArrowUp') {
+    nextHeight -= step
+  } else if (event.key === 'ArrowDown') {
+    nextHeight += step
+  } else if (event.key === 'Home') {
+    nextHeight = MIN_AI_INPUT_HEIGHT
+  } else if (event.key === 'End') {
+    nextHeight = maxAiInputHeight()
+  } else {
+    return
+  }
+  event.preventDefault()
+  setAiInputHeight(nextHeight, true)
+}
+
+function resetAiInputHeight() {
+  setAiInputHeight(DEFAULT_AI_INPUT_HEIGHT, true)
+}
+
 function openAiSettings() {
   navigateTo('ai-settings.html')
 }
@@ -524,6 +646,7 @@ function openAiSettings() {
 function clearAiConversation() {
   aiAbortController?.abort()
   aiAbortController = null
+  aiConversationId.value = null
   aiMessages.value = []
   aiInput.value = ''
   aiSending.value = false
@@ -546,23 +669,7 @@ function currentQuestionPrompt() {
   if (!selectedQuestion.value) {
     return ''
   }
-
-  const options = (selectedQuestion.value.options || [])
-    .map((option) => `- **${option.optionKey}**：${option.content}`)
-    .join('\n')
-
-  return [
-    '请结合下面这道题回答我的问题：',
-    '',
-    '## 题目',
-    selectedQuestion.value.stem,
-    '',
-    '## 选项',
-    options,
-    '',
-    '## 我的问题',
-    '',
-  ].join('\n')
+  return '请结合当前题目回答：\n\n'
 }
 
 async function insertCurrentQuestion() {
@@ -579,9 +686,13 @@ async function sendAiMessage() {
     return
   }
 
-  refreshAiConfiguration()
-  if (!aiConfigured.value) {
-    aiErrorMessage.value = '请先完成大模型设置'
+  if (!(await refreshAiConfiguration())) {
+    aiErrorMessage.value = 'AI 助教模型目录暂时不可用'
+    return
+  }
+
+  if (!selectedQuestion.value?.id) {
+    aiErrorMessage.value = '请先选择一道题目'
     return
   }
 
@@ -597,10 +708,6 @@ async function sendAiMessage() {
     content,
   }
   aiMessages.value.push(userMessage)
-  const requestMessages = [
-    { role: 'system', content: AI_SYSTEM_MESSAGE },
-    ...aiMessages.value.map((message) => ({ role: message.role, content: message.content })),
-  ]
   const assistantMessage = {
     id: nextAiMessageId++,
     role: 'assistant',
@@ -615,19 +722,26 @@ async function sendAiMessage() {
   const controller = new AbortController()
   aiAbortController = controller
   try {
-    const answer = await createAiChatCompletion(
-      requestMessages,
-      {
-        signal: controller.signal,
-        onDelta: (_delta, fullContent) => {
-          if (aiAbortController !== controller) {
-            return
-          }
-          reactiveAssistantMessage.content = fullContent
-          scheduleAiScroll()
-        },
+    const answer = await createAiTutorCompletion({
+      questionId: selectedQuestion.value.id,
+      input: content,
+      conversationId: aiConversationId.value,
+      model: aiModelName.value,
+      effort: aiEffort.value,
+      signal: controller.signal,
+      onAccepted: (accepted) => {
+        if (aiAbortController === controller) {
+          aiConversationId.value = accepted.conversationId
+        }
       },
-    )
+      onDelta: (_delta, fullContent) => {
+        if (aiAbortController !== controller) {
+          return
+        }
+        reactiveAssistantMessage.content = fullContent
+        scheduleAiScroll()
+      },
+    })
     if (aiAbortController !== controller) {
       return
     }
@@ -647,13 +761,21 @@ async function sendAiMessage() {
     }
   }
 }
+
+function stopAiGeneration() {
+  aiAbortController?.abort()
+}
 </script>
 
 <template>
   <div
     ref="practicePage"
     class="page practice-focus-page"
-    :class="{ 'ai-panel-open': aiPanelOpen, 'split-resizing': splitResizing }"
+    :class="{
+      'ai-panel-open': aiPanelOpen,
+      'practice-android-app': androidApp,
+      'split-resizing': splitResizing,
+    }"
     :style="splitStyle"
   >
     <section class="practice-focus-shell">
@@ -838,8 +960,8 @@ async function sendAiMessage() {
       <div ref="aiMessageList" class="ai-message-list" aria-live="polite">
         <div v-if="!aiConfigured" class="ai-config-empty">
           <Settings :size="26" />
-          <strong>请先配置大模型</strong>
-          <p>填写 OpenAI 兼容接口地址、SK、模型名称和 Effort 后即可提问。</p>
+          <strong>AI 助教暂时不可用</strong>
+          <p>请检查平台后端与模型服务，或前往设置页重新加载模型目录。</p>
           <button class="secondary-button" type="button" @click="openAiSettings">前往设置</button>
         </div>
 
@@ -876,22 +998,43 @@ async function sendAiMessage() {
           <MessageSquareQuote :size="17" />
           <span>引用当前题目</span>
         </button>
-        <textarea
-          v-model="aiInput"
-          class="ai-chat-input"
-          rows="4"
-          placeholder="输入你想追问的内容..."
-          :disabled="aiSending"
-          @keydown.enter.exact.prevent="sendAiMessage"
-        ></textarea>
+        <div
+          class="ai-chat-input-shell"
+          :style="androidApp ? { height: `${aiInputHeight}px` } : undefined"
+        >
+          <textarea
+            v-model="aiInput"
+            class="ai-chat-input"
+            rows="4"
+            placeholder="输入你想追问的内容..."
+            :disabled="aiSending"
+            @keydown.enter.exact.prevent="sendAiMessage"
+          ></textarea>
+          <button
+            v-if="androidApp"
+            class="ai-input-resize-handle"
+            type="button"
+            aria-label="调整输入框高度"
+            title="上下拖动调整输入框高度，双击恢复默认高度"
+            @dblclick="resetAiInputHeight"
+            @keydown="handleAiInputResizeKeydown"
+            @pointerdown="startAiInputResize"
+            @pointermove="updateAiInputHeightFromPointer"
+            @pointerup="finishAiInputResize"
+            @pointercancel="finishAiInputResize"
+          >
+            <GripHorizontal :size="20" />
+          </button>
+        </div>
         <button
           class="primary-button ai-send-button"
           type="button"
-          :disabled="aiSending || !aiInput.trim()"
-          @click="sendAiMessage"
+          :disabled="!aiSending && !aiInput.trim()"
+          @click="aiSending ? stopAiGeneration() : sendAiMessage()"
         >
-          <Send :size="18" />
-          <span>{{ aiSending ? '发送中' : '发送' }}</span>
+          <XCircle v-if="aiSending" :size="18" />
+          <Send v-else :size="18" />
+          <span>{{ aiSending ? '停止生成' : '发送' }}</span>
         </button>
       </footer>
     </aside>

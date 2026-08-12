@@ -35,25 +35,19 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.webkit.WebViewAssetLoader;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -62,8 +56,6 @@ public abstract class WebPageActivity extends Activity {
     private static final String ASSET_BASE_URL = "https://appassets.androidplatform.net/assets/web/";
     private static final String EXTRA_PAGE_QUERY = "xyz.kangnasi.interviewpractice.PAGE_QUERY";
     private static final long EXIT_CONFIRM_WINDOW_MS = 1800L;
-    private static final int AI_STREAM_HAS_TEXT = 1;
-    private static final int AI_STREAM_DONE = 2;
 
     private WebView webView;
     private LinearLayout errorView;
@@ -73,8 +65,6 @@ public abstract class WebPageActivity extends Activity {
     private ValueCallback<Uri[]> filePathCallback;
     private long lastBackPressedAt;
     private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
-    private final ExecutorService aiExecutor = Executors.newCachedThreadPool();
-    private final ConcurrentHashMap<String, AiStreamRequest> aiStreamRequests = new ConcurrentHashMap<>();
     private Future<?> updateDownloadTask;
 
     protected abstract String getPageName();
@@ -253,8 +243,6 @@ public abstract class WebPageActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        cancelAllAiStreams();
-        aiExecutor.shutdownNow();
         if (filePathCallback != null) {
             filePathCallback.onReceiveValue(null);
             filePathCallback = null;
@@ -482,387 +470,6 @@ public abstract class WebPageActivity extends Activity {
         }
     }
 
-    private void startAiChatStream(
-            String requestId,
-            String endpoint,
-            String apiKey,
-            String requestBodyJson
-    ) {
-        if (requestId == null || requestId.isBlank()) {
-            return;
-        }
-        String currentUrl = webView == null ? null : webView.getUrl();
-        if (currentUrl == null || !currentUrl.startsWith(ASSET_BASE_URL)) {
-            emitAiStreamEvent(requestId, "error", null, "当前页面无权调用原生大模型请求");
-            return;
-        }
-        if (endpoint == null || endpoint.isBlank() || apiKey == null || apiKey.isBlank()) {
-            emitAiStreamEvent(requestId, "error", null, "大模型请求地址或 SK 为空");
-            return;
-        }
-
-        final URL endpointUrl;
-        final JSONObject requestBody;
-        try {
-            endpointUrl = new URL(endpoint.trim());
-            String protocol = endpointUrl.getProtocol().toLowerCase(Locale.ROOT);
-            if (!"http".equals(protocol) && !"https".equals(protocol)) {
-                throw new IOException("仅支持 HTTP 或 HTTPS 请求地址");
-            }
-            requestBody = new JSONObject(requestBodyJson == null ? "{}" : requestBodyJson);
-            requestBody.put("stream", true);
-        } catch (IOException | JSONException exception) {
-            emitAiStreamEvent(requestId, "error", null, "大模型请求参数无效：" + safeErrorMessage(exception));
-            return;
-        }
-
-        AiStreamRequest request = new AiStreamRequest();
-        AiStreamRequest previous = aiStreamRequests.put(requestId, request);
-        if (previous != null) {
-            previous.cancel();
-        }
-
-        try {
-            request.future = aiExecutor.submit(
-                    () -> executeAiChatStream(requestId, endpointUrl, apiKey.trim(), requestBody, request)
-            );
-            if (request.canceled) {
-                request.future.cancel(true);
-            }
-        } catch (RuntimeException exception) {
-            aiStreamRequests.remove(requestId, request);
-            emitAiStreamEvent(requestId, "error", null, "无法启动大模型请求");
-        }
-    }
-
-    private void executeAiChatStream(
-            String requestId,
-            URL endpoint,
-            String apiKey,
-            JSONObject requestBody,
-            AiStreamRequest request
-    ) {
-        boolean receivedText = false;
-        HttpURLConnection connection = null;
-        try {
-            if (request.canceled) {
-                return;
-            }
-
-            byte[] bodyBytes = requestBody.toString().getBytes(StandardCharsets.UTF_8);
-            connection = (HttpURLConnection) endpoint.openConnection();
-            request.connection = connection;
-            connection.setConnectTimeout(20000);
-            connection.setReadTimeout(300000);
-            connection.setRequestMethod("POST");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            connection.setRequestProperty("Accept", "text/event-stream");
-            connection.setRequestProperty("Cache-Control", "no-cache");
-            connection.setDoOutput(true);
-            connection.setFixedLengthStreamingMode(bodyBytes.length);
-
-            try (OutputStream output = connection.getOutputStream()) {
-                output.write(bodyBytes);
-                output.flush();
-            }
-
-            int statusCode = connection.getResponseCode();
-            if (statusCode < 200 || statusCode >= 300) {
-                String message = readAiHttpError(connection, statusCode);
-                if (!request.canceled) {
-                    emitAiStreamEvent(requestId, "error", null, message);
-                }
-                return;
-            }
-
-            String contentType = connection.getContentType();
-            if (contentType != null && contentType.toLowerCase(Locale.ROOT).contains("text/html")) {
-                readTextStream(connection.getInputStream());
-                if (!request.canceled) {
-                    emitAiStreamEvent(
-                            requestId,
-                            "error",
-                            null,
-                            "接口返回了 HTML 页面，请检查基础请求地址是否缺少 /v1"
-                    );
-                }
-                return;
-            }
-
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                    connection.getInputStream(),
-                    StandardCharsets.UTF_8
-            ))) {
-                StringBuilder eventData = new StringBuilder();
-                String line;
-                while (!request.canceled && (line = reader.readLine()) != null) {
-                    if (line.isEmpty()) {
-                        if (eventData.length() > 0) {
-                            int result = processAiStreamData(requestId, eventData.toString(), request);
-                            receivedText = receivedText || (result & AI_STREAM_HAS_TEXT) != 0;
-                            eventData.setLength(0);
-                            if ((result & AI_STREAM_DONE) != 0) {
-                                finishAiStream(requestId, request, receivedText);
-                                return;
-                            }
-                        }
-                        continue;
-                    }
-                    if (line.startsWith("data:")) {
-                        if (eventData.length() > 0) {
-                            eventData.append('\n');
-                        }
-                        eventData.append(line.substring(5).trim());
-                        continue;
-                    }
-
-                    String trimmedLine = line.trim();
-                    if (eventData.length() == 0 && trimmedLine.startsWith("{")) {
-                        int result = processAiStreamData(requestId, trimmedLine, request);
-                        receivedText = receivedText || (result & AI_STREAM_HAS_TEXT) != 0;
-                        if ((result & AI_STREAM_DONE) != 0) {
-                            finishAiStream(requestId, request, receivedText);
-                            return;
-                        }
-                    }
-                }
-
-                if (!request.canceled && eventData.length() > 0) {
-                    int result = processAiStreamData(requestId, eventData.toString(), request);
-                    receivedText = receivedText || (result & AI_STREAM_HAS_TEXT) != 0;
-                }
-            }
-
-            if (!request.canceled) {
-                finishAiStream(requestId, request, receivedText);
-            }
-        } catch (IOException | JSONException exception) {
-            if (!request.canceled) {
-                emitAiStreamEvent(
-                        requestId,
-                        "error",
-                        null,
-                        "原生大模型请求失败：" + safeErrorMessage(exception)
-                );
-            }
-        } finally {
-            request.connection = null;
-            if (connection != null) {
-                connection.disconnect();
-            }
-            aiStreamRequests.remove(requestId, request);
-        }
-    }
-
-    private int processAiStreamData(
-            String requestId,
-            String data,
-            AiStreamRequest request
-    ) throws JSONException, IOException {
-        String trimmedData = data.trim();
-        if (trimmedData.isEmpty()) {
-            return 0;
-        }
-        if ("[DONE]".equals(trimmedData)) {
-            return AI_STREAM_DONE;
-        }
-
-        JSONObject payload = new JSONObject(trimmedData);
-        JSONObject error = payload.optJSONObject("error");
-        if (error != null) {
-            String message = error.optString("message", "大模型流式响应返回错误");
-            throw new IOException(message);
-        }
-
-        JSONArray choices = payload.optJSONArray("choices");
-        if (choices == null || choices.length() == 0) {
-            return 0;
-        }
-        JSONObject choice = choices.optJSONObject(0);
-        if (choice == null) {
-            return 0;
-        }
-
-        String text = "";
-        JSONObject delta = choice.optJSONObject("delta");
-        if (delta != null) {
-            text = extractAiText(delta.opt("content"));
-            if (text.isEmpty()) {
-                text = delta.optString("refusal", "");
-            }
-        }
-        if (text.isEmpty()) {
-            JSONObject message = choice.optJSONObject("message");
-            if (message != null) {
-                text = extractAiText(message.opt("content"));
-                if (text.isEmpty()) {
-                    text = message.optString("refusal", "");
-                }
-            }
-        }
-        if (text.isEmpty()) {
-            text = choice.optString("text", "");
-        }
-
-        if (!text.isEmpty() && !request.canceled) {
-            emitAiStreamEvent(requestId, "delta", text, null);
-            return AI_STREAM_HAS_TEXT;
-        }
-        return 0;
-    }
-
-    private String extractAiText(Object content) {
-        if (content instanceof String) {
-            return (String) content;
-        }
-        if (!(content instanceof JSONArray)) {
-            return "";
-        }
-
-        JSONArray parts = (JSONArray) content;
-        StringBuilder text = new StringBuilder();
-        for (int index = 0; index < parts.length(); index += 1) {
-            Object part = parts.opt(index);
-            if (part instanceof String) {
-                text.append((String) part);
-                continue;
-            }
-            if (!(part instanceof JSONObject)) {
-                continue;
-            }
-            Object partText = ((JSONObject) part).opt("text");
-            if (partText instanceof String) {
-                text.append((String) partText);
-            } else if (partText instanceof JSONObject) {
-                text.append(((JSONObject) partText).optString("value", ""));
-            }
-        }
-        return text.toString();
-    }
-
-    private void finishAiStream(String requestId, AiStreamRequest request, boolean receivedText) {
-        if (request.canceled) {
-            return;
-        }
-        if (!receivedText) {
-            emitAiStreamEvent(requestId, "error", null, "大模型流式响应中没有可展示的文本");
-            return;
-        }
-        emitAiStreamEvent(requestId, "complete", null, null);
-    }
-
-    private String readAiHttpError(HttpURLConnection connection, int statusCode) {
-        String responseBody = readTextStream(connection.getErrorStream());
-        String serverMessage = "";
-        if (!responseBody.isBlank()) {
-            try {
-                JSONObject payload = new JSONObject(responseBody);
-                JSONObject error = payload.optJSONObject("error");
-                if (error != null) {
-                    serverMessage = error.optString("message", "");
-                }
-                if (serverMessage.isBlank()) {
-                    serverMessage = payload.optString("message", "");
-                }
-            } catch (JSONException ignored) {
-                serverMessage = responseBody.replaceAll("\\s+", " ").trim();
-            }
-        }
-        if (serverMessage.length() > 400) {
-            serverMessage = serverMessage.substring(0, 400) + "…";
-        }
-        String suffix = serverMessage.isBlank() ? "" : "：" + serverMessage;
-        return "大模型请求失败（HTTP " + statusCode + "）" + suffix;
-    }
-
-    private String readTextStream(InputStream stream) {
-        if (stream == null) {
-            return "";
-        }
-        StringBuilder text = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                stream,
-                StandardCharsets.UTF_8
-        ))) {
-            char[] buffer = new char[2048];
-            int read;
-            while ((read = reader.read(buffer)) != -1 && text.length() < 32768) {
-                int remaining = 32768 - text.length();
-                text.append(buffer, 0, Math.min(read, remaining));
-            }
-        } catch (IOException ignored) {
-            return text.toString();
-        }
-        return text.toString();
-    }
-
-    private String safeErrorMessage(Exception exception) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return exception.getClass().getSimpleName();
-        }
-        return message;
-    }
-
-    private void emitAiStreamEvent(String requestId, String type, String text, String message) {
-        JSONObject event = new JSONObject();
-        try {
-            event.put("requestId", requestId);
-            event.put("type", type);
-            if (text != null) {
-                event.put("text", text);
-            }
-            if (message != null) {
-                event.put("message", message);
-            }
-        } catch (JSONException ignored) {
-            return;
-        }
-
-        String script = "window.__onAndroidAiStream && window.__onAndroidAiStream(" + event + ");";
-        runOnUiThread(() -> {
-            if (webView != null && !isDestroyed()) {
-                webView.evaluateJavascript(script, null);
-            }
-        });
-    }
-
-    private void cancelAiStream(String requestId) {
-        if (requestId == null || requestId.isBlank()) {
-            return;
-        }
-        AiStreamRequest request = aiStreamRequests.remove(requestId);
-        if (request != null) {
-            request.cancel();
-        }
-    }
-
-    private void cancelAllAiStreams() {
-        for (AiStreamRequest request : aiStreamRequests.values()) {
-            request.cancel();
-        }
-        aiStreamRequests.clear();
-    }
-
-    private static class AiStreamRequest {
-        volatile boolean canceled;
-        volatile HttpURLConnection connection;
-        volatile Future<?> future;
-
-        void cancel() {
-            canceled = true;
-            HttpURLConnection activeConnection = connection;
-            if (activeConnection != null) {
-                activeConnection.disconnect();
-            }
-            Future<?> activeFuture = future;
-            if (activeFuture != null) {
-                activeFuture.cancel(true);
-            }
-        }
-    }
-
     private class AppWebViewClient extends WebViewClient {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -973,26 +580,6 @@ public abstract class WebPageActivity extends Activity {
         @JavascriptInterface
         public void installApkFromUrl(String downloadUrl) {
             runOnUiThread(() -> WebPageActivity.this.installApkFromUrl(downloadUrl));
-        }
-
-        @JavascriptInterface
-        public void startAiChatStream(
-                String requestId,
-                String endpoint,
-                String apiKey,
-                String requestBodyJson
-        ) {
-            runOnUiThread(() -> WebPageActivity.this.startAiChatStream(
-                    requestId,
-                    endpoint,
-                    apiKey,
-                    requestBodyJson
-            ));
-        }
-
-        @JavascriptInterface
-        public void cancelAiChatStream(String requestId) {
-            WebPageActivity.this.cancelAiStream(requestId);
         }
 
         @JavascriptInterface

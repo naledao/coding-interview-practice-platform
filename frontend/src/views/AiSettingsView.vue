@@ -1,45 +1,63 @@
 <script setup>
-import { ref } from 'vue'
-import { BrainCircuit, Eye, EyeOff, KeyRound, Link2, Save } from '@lucide/vue'
-import { getAiSettings, saveAiSettings, validateAiSettings } from '../aiSettings'
+import { computed, onMounted, ref, watch } from 'vue'
+import { BrainCircuit, RefreshCw, Save } from '@lucide/vue'
+import {
+  getAiSettings,
+  loadAiModelCatalog,
+  resolveAiSettings,
+  saveAiSettings,
+  validateAiSettings,
+} from '../aiSettings'
 
 const savedSettings = getAiSettings()
-const baseUrl = ref(savedSettings.baseUrl)
-const apiKey = ref(savedSettings.apiKey)
+const catalog = ref(null)
 const model = ref(savedSettings.model)
 const effort = ref(savedSettings.effort)
-const apiKeyVisible = ref(false)
+const loading = ref(false)
 const errorMessage = ref('')
 const noticeMessage = ref('')
 
-const effortOptions = [
-  { value: '', label: '不传递（使用模型默认值）' },
-  { value: 'none', label: 'none' },
-  { value: 'minimal', label: 'minimal' },
-  { value: 'low', label: 'low' },
-  { value: 'medium', label: 'medium' },
-  { value: 'high', label: 'high' },
-  { value: 'xhigh', label: 'xhigh' },
-]
+const selectedModel = computed(() => (
+  catalog.value?.models?.find((option) => option.model === model.value) || null
+))
+const effortOptions = computed(() => selectedModel.value?.supportedReasoningEfforts || [])
+
+onMounted(loadCatalog)
+
+watch(model, () => {
+  const option = selectedModel.value
+  if (!option || option.supportedReasoningEfforts?.includes(effort.value)) {
+    return
+  }
+  effort.value = option.supportedReasoningEfforts?.includes(option.defaultReasoningEffort)
+    ? option.defaultReasoningEffort
+    : option.supportedReasoningEfforts?.[0] || ''
+})
+
+async function loadCatalog() {
+  loading.value = true
+  errorMessage.value = ''
+  noticeMessage.value = ''
+  try {
+    catalog.value = await loadAiModelCatalog()
+    const resolved = resolveAiSettings(catalog.value, { model: model.value, effort: effort.value })
+    model.value = resolved.model
+    effort.value = resolved.effort
+  } catch (error) {
+    errorMessage.value = error.message
+  } finally {
+    loading.value = false
+  }
+}
 
 function saveSettings() {
   errorMessage.value = ''
   noticeMessage.value = ''
-  const settings = {
-    baseUrl: baseUrl.value.trim().replace(/\/+$/, ''),
-    apiKey: apiKey.value.trim(),
-    model: model.value.trim(),
-    effort: effort.value,
-  }
-
   try {
-    validateAiSettings(settings)
-    const saved = saveAiSettings(settings)
-    baseUrl.value = saved.baseUrl
-    apiKey.value = saved.apiKey
-    model.value = saved.model
-    effort.value = saved.effort
-    noticeMessage.value = '大模型设置已保存到本机'
+    const settings = { model: model.value, effort: effort.value }
+    validateAiSettings(settings, catalog.value)
+    saveAiSettings(settings)
+    noticeMessage.value = 'AI 助教偏好已保存到本机'
   } catch (error) {
     errorMessage.value = error.message
   }
@@ -50,74 +68,62 @@ function saveSettings() {
   <div class="page">
     <header class="page-header">
       <p>AI 助教</p>
-      <h1>大模型设置</h1>
+      <h1>模型设置</h1>
     </header>
 
     <section class="ai-settings-layout">
       <div class="ai-settings-intro">
         <BrainCircuit :size="28" />
         <div>
-          <h2>OpenAI 兼容接口</h2>
-          <p>设置只保存在当前设备的 WebView 本地存储中，不会写入业务后端。</p>
+          <h2>Codex AI 助教</h2>
+          <p>可用选项由平台后端实时读取，只需选择模型和推理强度。</p>
         </div>
       </div>
 
       <form class="ai-settings-form" @submit.prevent="saveSettings">
         <label>
-          <span><Link2 :size="17" />基础请求地址</span>
-          <input
-            v-model="baseUrl"
-            autocomplete="url"
-            inputmode="url"
-            name="aiBaseUrl"
-            placeholder="https://api.openai.com/v1"
-          />
-          <small>仅填写域名时自动补 /v1/chat/completions；也可以直接填写完整接口地址。</small>
-        </label>
-
-        <label>
-          <span><KeyRound :size="17" />SK</span>
-          <div class="secret-input-row">
-            <input
-              v-model="apiKey"
-              :type="apiKeyVisible ? 'text' : 'password'"
-              autocomplete="off"
-              name="aiApiKey"
-              placeholder="sk-..."
-            />
-            <button class="icon-button" type="button" :aria-label="apiKeyVisible ? '隐藏 SK' : '显示 SK'" @click="apiKeyVisible = !apiKeyVisible">
-              <EyeOff v-if="apiKeyVisible" :size="19" />
-              <Eye v-else :size="19" />
-            </button>
-          </div>
-        </label>
-
-        <label>
-          <span>模型名称</span>
-          <input v-model="model" autocomplete="off" name="aiModel" placeholder="例如：gpt-5" />
+          <span>模型</span>
+          <select v-model="model" name="aiModel" :disabled="loading || !catalog">
+            <option v-for="option in catalog?.models || []" :key="option.model" :value="option.model">
+              {{ option.displayName || option.model }}
+            </option>
+          </select>
         </label>
 
         <label>
           <span>Effort</span>
-          <select v-model="effort" name="aiEffort">
-            <option v-for="option in effortOptions" :key="option.value || 'default'" :value="option.value">
-              {{ option.label }}
+          <select v-model="effort" name="aiEffort" :disabled="loading || !selectedModel">
+            <option v-for="option in effortOptions" :key="option" :value="option">
+              {{ option }}
             </option>
           </select>
-          <small>发送时映射为 reasoning_effort；可用值取决于所选模型和兼容服务。</small>
+          <small>Effort 选项会随当前模型自动更新。</small>
         </label>
 
+        <p v-if="loading" class="notice-message">
+          <RefreshCw :size="16" />
+          正在读取模型目录...
+        </p>
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
         <p v-if="noticeMessage" class="notice-message">{{ noticeMessage }}</p>
 
-        <button class="primary-button ai-settings-save" type="submit">
+        <button
+          v-if="errorMessage && !catalog"
+          class="secondary-button"
+          type="button"
+          :disabled="loading"
+          @click="loadCatalog"
+        >
+          重新加载
+        </button>
+        <button class="primary-button ai-settings-save" type="submit" :disabled="loading || !catalog">
           <Save :size="18" />
           <span>保存设置</span>
         </button>
       </form>
 
       <p class="ai-settings-security-note">
-        SK 以明文形式保存在 WebView localStorage 中。请只在你信任的设备上使用。
+        App 只连接面试平台后端；本机不会保存 AI 服务地址或密钥。
       </p>
     </section>
   </div>

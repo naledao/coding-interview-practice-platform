@@ -1,4 +1,4 @@
-import { UPDATE_MANIFEST_URL } from './updateConfig'
+import { APP_RELEASE_BASE_URL, UPDATE_RESOLVE_URL } from './updateConfig'
 
 export function isAndroidApp() {
   return typeof window.AndroidBridge !== 'undefined'
@@ -19,18 +19,57 @@ export function getCurrentVersionName() {
 }
 
 export async function checkForUpdate() {
-  const response = await fetch(`${UPDATE_MANIFEST_URL}?t=${Date.now()}`, {
+  const currentVersionCode = getCurrentVersionCode()
+  const response = await fetch(UPDATE_RESOLVE_URL, {
+    method: 'POST',
     cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      platform: 'android',
+      architecture: 'universal',
+      channel: 'stable',
+      currentSequence: currentVersionCode,
+      currentVersion: getCurrentVersionName(),
+      packageTypes: ['apk'],
+      supportedInstallerSchemaVersions: [1],
+      osVersion: null,
+    }),
   })
   if (!response.ok) {
     throw new Error('检查更新失败')
   }
 
-  const manifest = await response.json()
-  const currentVersionCode = getCurrentVersionCode()
+  const resolved = await response.json()
+  if (!resolved.updateAvailable || !resolved.release || !resolved.artifact) {
+    return {
+      manifest: null,
+      hasUpdate: false,
+      currentVersionCode,
+    }
+  }
+
+  const { release, artifact } = resolved
+  const downloadUrl = new URL(artifact.downloadUrl, APP_RELEASE_BASE_URL).toString()
+  const manifest = {
+    versionCode: Number(release.sequence),
+    versionName: release.versionName,
+    releaseNotes: release.releaseNotes,
+    mandatory: Boolean(resolved.mandatory),
+    publishedAt: release.publishedAt,
+    artifactId: artifact.artifactId,
+    fileName: artifact.fileName,
+    fileSize: artifact.fileSize,
+    sha256: artifact.sha256,
+    installerSchemaVersion: artifact.installerSchemaVersion,
+    downloadUrl,
+  }
+
   return {
     manifest,
-    hasUpdate: isAndroidApp() && Number(manifest.versionCode) > currentVersionCode,
+    hasUpdate: isAndroidApp() && manifest.versionCode > currentVersionCode,
     currentVersionCode,
   }
 }

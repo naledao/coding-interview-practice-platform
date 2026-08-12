@@ -14,8 +14,8 @@ android {
         applicationId 'xyz.kangnasi.interviewpractice'
         minSdk 26
         targetSdk 36
-        versionCode 23
-        versionName '0.2.21'
+        versionCode 26
+        versionName '0.2.24'
     }
 
     def releaseStoreFile = releaseEnv('STORE_FILE')

@@ -154,11 +154,17 @@ class CodexToolControllerTest {
     void recommendedTagsAreExposedToCodex() throws Exception {
         postTool("/api/codex-tools/get_recommended_tags", Map.of())
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.tags", hasSize(20)))
+                .andExpect(jsonPath("$.data.tags", hasSize(42)))
                 .andExpect(jsonPath("$.data.tags[0].name").value("Java基础"))
                 .andExpect(jsonPath("$.data.tags[0].category").value("JAVA"))
                 .andExpect(jsonPath("$.data.tags[4].name").value("泛型"))
-                .andExpect(jsonPath("$.data.tags[12].name").value("Spring"));
+                .andExpect(jsonPath("$.data.tags[12].name").value("Spring"))
+                .andExpect(jsonPath("$.data.tags[20].name").value("Java后端"))
+                .andExpect(jsonPath("$.data.tags[25].name").value("Java智能体"))
+                .andExpect(jsonPath("$.data.tags[25].category").value("AI"))
+                .andExpect(jsonPath("$.data.tags[26].name").value("Spring AI"))
+                .andExpect(jsonPath("$.data.tags[32].name").value("MCP"))
+                .andExpect(jsonPath("$.data.tags[41].name").value("AI可观测性"));
     }
 
     @Test

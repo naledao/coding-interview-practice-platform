@@ -7,7 +7,33 @@ spring:
       - "optional:file:./src/main/resources/.env[.properties]"
       - "optional:file:./backend/src/main/resources/.env[.properties]"
   application:
-    name: coding-interview-practice-platform-backend
+    name: coding-interview-practice-platform-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:kangnasi}
+        group: ${NACOS_GROUP:kangnasi}
+        register-enabled: ${NACOS_DISCOVERY_REGISTER_ENABLED:true}
+    loadbalancer:
+      eager-load:
+        clients:
+          - codex-chat-service
+          - email-service
+    openfeign:
+      client:
+        config:
+          codex-chat-service:
+            connect-timeout: 5000
+            read-timeout: 1800000
+          email-service:
+            connect-timeout: 3000
+            read-timeout: 10000
+  mvc:
+    async:
+      request-timeout: 30m
   servlet:
     multipart:
       max-file-size: 50MB
@@ -25,18 +51,6 @@ spring:
     listener:
       simple:
         auto-startup: ${APP_DOCUMENT_PARSE_RABBITMQ_ENABLED:true}
-  mail:
-    host: ${MAIL_HOST:smtp.qq.com}
-    port: ${MAIL_PORT:465}
-    username: ${MAIL_USERNAME:3475315488@qq.com}
-    password: ${MAIL_PASSWORD:}
-    default-encoding: UTF-8
-    properties:
-      mail:
-        smtp:
-          auth: true
-          ssl:
-            enable: true
   jpa:
     hibernate:
       ddl-auto: update
@@ -52,7 +66,7 @@ spring:
         version: 0.1.0
         protocol: STREAMABLE
         request-timeout: 60s
-        instructions: 只能用于读取导入任务、读取上传文档、写入 Java 面试单选题和更新导入任务状态。
+        instructions: 只能用于读取导入任务、读取上传文档、校验并写入 Java 后端或 Java 智能体面试单选题，以及更新导入任务状态。
         capabilities:
           tool: true
           resource: false
@@ -71,8 +85,6 @@ app:
     dev-login-code: ${APP_DEV_LOGIN_CODE:123456}
     max-login-failures: ${APP_MAX_LOGIN_FAILURES:5}
     login-failure-lock-seconds: ${APP_LOGIN_FAILURE_LOCK_SECONDS:300}
-  mail:
-    from: ${APP_MAIL_FROM:${spring.mail.username}}
   upload:
     root: ${APP_UPLOAD_ROOT:runtime/uploads}
     max-upload-bytes: ${APP_UPLOAD_MAX_BYTES:52428800}

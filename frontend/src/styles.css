@@ -1708,6 +1708,47 @@ button {
   background: #f8fafc;
 }
 
+.practice-android-app .ai-chat-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.practice-android-app .ai-chat-header {
+  grid-row: 1;
+}
+
+.practice-android-app .ai-chat-composer {
+  z-index: 1;
+  grid-row: 2;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "error error"
+    "quote quote"
+    "send input";
+  padding-bottom: 10px;
+  border-top: 0;
+  border-bottom: 1px solid #d7dee8;
+}
+
+.practice-android-app .ai-chat-error {
+  grid-area: error;
+}
+
+.practice-android-app .ai-quote-button {
+  grid-area: quote;
+}
+
+.practice-android-app .ai-chat-input-shell {
+  grid-area: input;
+}
+
+.practice-android-app .ai-send-button {
+  grid-area: send;
+}
+
+.practice-android-app .ai-message-list {
+  grid-row: 3;
+}
+
 @container practice-pane (max-width: 420px) {
   .ai-panel-open .practice-bottom-bar {
     grid-template-columns: 38px minmax(0, 1fr) 38px;
@@ -2156,6 +2197,7 @@ button {
 }
 
 .ai-chat-input {
+  display: block;
   width: 100%;
   min-height: 82px;
   max-height: 180px;
@@ -2167,6 +2209,65 @@ button {
   line-height: 1.5;
   background: #ffffff;
   outline: none;
+}
+
+.ai-chat-input-shell {
+  display: contents;
+}
+
+.ai-input-resize-handle {
+  display: none;
+}
+
+.practice-android-app .ai-chat-input-shell {
+  position: relative;
+  display: block;
+  min-height: 82px;
+  max-height: min(360px, 45vh);
+}
+
+.practice-android-app .ai-chat-input {
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  padding-bottom: 28px;
+  resize: none;
+}
+
+.practice-android-app .ai-input-resize-handle {
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #64748b;
+  background: rgba(248, 250, 252, 0.94);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.practice-android-app .ai-input-resize-handle:hover,
+.practice-android-app .ai-input-resize-handle:focus-visible,
+.ai-input-resizing .practice-android-app .ai-input-resize-handle {
+  color: #0f766e;
+  background: #e2f4f1;
+}
+
+.practice-android-app .ai-input-resize-handle:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 1px;
+}
+
+.ai-input-resizing,
+.ai-input-resizing * {
+  cursor: row-resize !important;
+  user-select: none !important;
 }
 
 .ai-chat-input:focus {

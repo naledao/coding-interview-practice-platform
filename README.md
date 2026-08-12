@@ -12,7 +12,7 @@
 | 题库 | 单选题、难度与标签、随机或顺序练习、按条件筛选、题目上下线 |
 | 学习闭环 | 答题解析、错题本、收藏、已答题记录、App 个人屏蔽、每日与标签统计 |
 | 文档导入 | Markdown/ZIP 上传、解析任务队列、任务状态与执行日志、失败重试 |
-| AI 产题 | Codex CLI 读取知识文档、联网补充资料、自我审查，并通过 MCP 工具写入题库 |
+| AI 产题 | Codex CLI 从知识文档筛选 Java 后端或 Java 智能体知识点、联网校验、自我审查，并通过 MCP 工具校验和写入题库 |
 | React 管理端 | 后端托管的浏览器控制台，支持上传、文档、任务、日志和题库管理 |
 | Android | 内置 Vue 静态资源的 WebView 客户端、文件选择、后端地址配置和 APK 更新 |
 
@@ -91,10 +91,17 @@ export RABBITMQ_PORT='5672'
 export RABBITMQ_USERNAME='your-rabbitmq-user'
 export RABBITMQ_PASSWORD='your-rabbitmq-password'
 
-export MAIL_USERNAME='your-mail-account@example.com'
-export MAIL_PASSWORD='your-mail-authorization-code'
+export NACOS_SERVER_ADDR='127.0.0.1:8848'
+export NACOS_USERNAME='your-nacos-user'
+export NACOS_PASSWORD='your-nacos-password'
+export NACOS_NAMESPACE='your-nacos-namespace'
+export NACOS_GROUP='kangnasi'
+export NACOS_DISCOVERY_REGISTER_ENABLED='true'
 export APP_JWT_SECRET='replace-with-a-random-secret-at-least-32-bytes-long'
 ```
+
+真实验证码邮件由 Nacos 中注册的 `email-service` 异步投递，SMTP 账号配置只属于
+`email-service`，当前后端不再直接连接 SMTP。
 
 如果只体验基础刷题功能，可以暂时关闭 RabbitMQ 消费和 Codex 任务启动，并启用本地验证码：
 
@@ -112,7 +119,7 @@ cd backend
 mvn spring-boot:run
 ```
 
-后端默认监听 `http://127.0.0.1:8904`。开发数据包含 `admin@example.com` 和 `user1@example.com` 两个示例用户；启用本地验证码后可使用上面配置的验证码登录。
+后端默认监听 `http://127.0.0.1:8904`，并以 `coding-interview-practice-platform-service` 注册到 Nacos。`gateway-service` 通过服务发现从 `http://127.0.0.1:8960` 转发公开 API；健康检查、Codex 内部工具和 MCP 接口不会经 Gateway 暴露。开发数据包含 `admin@example.com` 和 `user1@example.com` 两个示例用户；启用本地验证码后可使用上面配置的验证码登录。
 
 ### 3. 启动前端
 
@@ -147,7 +154,7 @@ export APP_CODEX_COMMAND=codex
 export APP_DOCUMENT_PARSE_RABBITMQ_ENABLED=true
 ```
 
-管理员上传 Markdown 或 ZIP 文档后，后端会创建解析任务，通过 RabbitMQ 启动 Codex。Codex 使用后端提供的 MCP 工具读取文档、生成并校验题目、写入数据库，同时更新任务状态和日志。相关配置可以在 `backend/src/main/resources/application.yml` 中查看。
+管理员上传 Markdown 或 ZIP 文档后，后端会创建解析任务，通过 RabbitMQ 启动 Codex。Codex 使用后端提供的 MCP 工具读取文档，筛选 Java 后端或 Java 智能体知识点，联网核实后生成、校验并写入题目，同时更新任务状态和日志。运行提示词位于 `backend/src/main/resources/prompts/codex-question-generation.md`，相关连接配置位于 `backend/src/main/resources/application.yml`。
 
 ## 测试与构建
 
@@ -205,7 +212,7 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 
 `android/gradle.properties` 当前针对 ARM64 Ubuntu chroot 配置了本机 JDK 路径和 `android.aapt2FromMavenOverride`。在同类环境中，需要把两项路径改为本机 JDK 和当前仓库中 `android/tools/aapt2` 的绝对路径；常规 x86_64 Linux 环境可以删除这两项本机路径配置，使用 `JAVA_HOME` 和 Android Gradle Plugin 自带的 `aapt2`。
 
-Release 构建和发布需要通过环境变量提供签名与对象存储配置。Keystore、密码、令牌和 `.env` 文件不应提交到仓库。
+Release 构建和发布需要通过环境变量提供签名、`APP_RELEASE_INTERNAL_TOKEN` 与 MinIO 凭据。发布脚本会先发布到 `app-release-service`，再同步 MinIO 中的旧版 `latest.json`，使仍使用旧更新协议的客户端也能取得最新版并通过 Gateway 下载。确认不再有旧客户端后，可以设置 `INTERVIEW_LEGACY_MANIFEST_SYNC=false` 停用兼容同步。Keystore、密码、令牌和 `.env` 文件不应提交到仓库。
 
 ## 功能文档
 

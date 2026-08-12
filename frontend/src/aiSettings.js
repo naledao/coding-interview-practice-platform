@@ -1,48 +1,48 @@
-const AI_SETTINGS_KEY = 'interview_ai_settings'
+import {
+  cancelAiTutorRun,
+  createAiTutorRun,
+  fetchAiTutorModels,
+  streamAiTutorRun,
+} from './api'
 
-const DEFAULT_SETTINGS = Object.freeze({
-  baseUrl: 'https://api.openai.com/v1',
-  apiKey: '',
-  model: '',
-  effort: 'medium',
-})
+const LEGACY_AI_SETTINGS_KEY = 'interview_ai_settings'
+const AI_SETTINGS_KEY = 'interview_ai_tutor_preferences'
 
-const nativeAiStreams = new Map()
-let nativeRequestSequence = 1
+try {
+  localStorage.removeItem(LEGACY_AI_SETTINGS_KEY)
+} catch {
+  // localStorage may be unavailable in a restricted WebView.
+}
 
 function cleanText(value) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function cleanBaseUrl(value) {
-  return cleanText(value).replace(/\/+$/, '')
+function createUuid() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16)
+    const value = character === 'x' ? random : (random & 0x3) | 0x8
+    return value.toString(16)
+  })
 }
 
 export function getAiSettings() {
-  let saved = {}
   try {
-    const parsed = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || '{}')
-    saved = parsed && typeof parsed === 'object' ? parsed : {}
+    const saved = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || '{}')
+    return {
+      model: cleanText(saved?.model),
+      effort: cleanText(saved?.effort),
+    }
   } catch {
-    saved = {}
-  }
-
-  const savedEffort = Object.prototype.hasOwnProperty.call(saved, 'effort')
-    ? cleanText(saved.effort)
-    : DEFAULT_SETTINGS.effort
-
-  return {
-    baseUrl: cleanBaseUrl(saved.baseUrl) || DEFAULT_SETTINGS.baseUrl,
-    apiKey: cleanText(saved.apiKey),
-    model: cleanText(saved.model),
-    effort: savedEffort,
+    return { model: '', effort: '' }
   }
 }
 
 export function saveAiSettings(settings) {
   const normalized = {
-    baseUrl: cleanBaseUrl(settings?.baseUrl),
-    apiKey: cleanText(settings?.apiKey),
     model: cleanText(settings?.model),
     effort: cleanText(settings?.effort),
   }
@@ -51,287 +51,139 @@ export function saveAiSettings(settings) {
 }
 
 export function isAiSettingsComplete(settings = getAiSettings()) {
-  return Boolean(settings.baseUrl && settings.apiKey && settings.model)
+  return Boolean(settings.model && settings.effort)
 }
 
-export function validateAiSettings(settings) {
-  if (!settings?.baseUrl || !/^https?:\/\//i.test(settings.baseUrl)) {
-    throw new Error('基础请求地址必须是有效的 HTTP 或 HTTPS 地址')
+export function validateAiSettings(settings, catalog) {
+  const selectedModel = catalog?.models?.find((option) => option.model === settings?.model)
+  if (!selectedModel) {
+    throw new Error('请选择可用模型')
   }
-  if (!settings.apiKey) {
-    throw new Error('请填写 SK')
-  }
-  if (!settings.model) {
-    throw new Error('请填写模型名称')
+  if (!selectedModel.supportedReasoningEfforts?.includes(settings?.effort)) {
+    throw new Error('请选择当前模型支持的 Effort')
   }
 }
 
-function chatCompletionsUrl(baseUrl) {
-  const normalized = cleanBaseUrl(baseUrl)
-  const url = new URL(normalized)
-  const path = url.pathname.replace(/\/+$/, '')
-  if (/\/chat\/completions$/i.test(path)) {
-    return url.toString()
+export function resolveAiSettings(catalog, settings = getAiSettings()) {
+  const models = Array.isArray(catalog?.models) ? catalog.models : []
+  if (!models.length) {
+    throw new Error('AI 助教暂时没有可用模型')
   }
-  url.pathname = `${path || '/v1'}/chat/completions`
-  return url.toString()
+  const selectedModel = models.find((option) => option.model === settings.model)
+    || models.find((option) => option.model === catalog.defaultModel)
+    || models[0]
+  const efforts = Array.isArray(selectedModel.supportedReasoningEfforts)
+    ? selectedModel.supportedReasoningEfforts
+    : []
+  if (!efforts.length) {
+    throw new Error('所选模型暂时没有可用 Effort')
+  }
+  const effort = efforts.includes(settings.effort)
+    ? settings.effort
+    : efforts.includes(selectedModel.defaultReasoningEffort)
+      ? selectedModel.defaultReasoningEffort
+      : efforts[0]
+  return { model: selectedModel.model, effort }
 }
 
-function assistantContent(payload) {
-  const message = payload?.choices?.[0]?.message
-  const content = message?.content
-  if (typeof content === 'string' && content.trim()) {
-    return content.trim()
+export async function loadAiModelCatalog() {
+  const catalog = await fetchAiTutorModels()
+  if (!catalog || !Array.isArray(catalog.models) || !catalog.models.length) {
+    throw new Error('AI 助教模型目录暂时不可用')
   }
-  if (Array.isArray(content)) {
-    const text = content
-      .map((part) => (typeof part === 'string' ? part : part?.text || ''))
-      .join('')
-      .trim()
-    if (text) {
-      return text
-    }
-  }
-  if (typeof message?.refusal === 'string' && message.refusal.trim()) {
-    return message.refusal.trim()
-  }
-  throw new Error('大模型响应中没有可展示的文本')
+  return catalog
 }
 
-function streamChunkContent(payload) {
-  if (payload?.error) {
-    throw new Error(payload.error.message || '大模型流式响应返回错误')
+export async function loadAiConfiguration({ persist = false } = {}) {
+  const catalog = await loadAiModelCatalog()
+  const settings = resolveAiSettings(catalog)
+  if (persist) {
+    saveAiSettings(settings)
   }
-
-  const choice = payload?.choices?.[0]
-  const delta = choice?.delta
-  const content = delta?.content
-  if (typeof content === 'string') {
-    return content
-  }
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => (typeof part === 'string' ? part : part?.text?.value || part?.text || ''))
-      .join('')
-  }
-  if (typeof delta?.refusal === 'string') {
-    return delta.refusal
-  }
-  if (choice?.message) {
-    try {
-      return assistantContent({ choices: [{ message: choice.message }] })
-    } catch {
-      return ''
-    }
-  }
-  return typeof choice?.text === 'string' ? choice.text : ''
+  return { catalog, settings }
 }
 
 function abortError() {
-  return new DOMException('大模型请求已取消', 'AbortError')
+  return new DOMException('AI 助教请求已取消', 'AbortError')
 }
 
-function isAndroidStreamingAvailable() {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.AndroidBridge?.startAiChatStream === 'function' &&
-    typeof window.AndroidBridge?.cancelAiChatStream === 'function'
-  )
+function terminalMessage(event) {
+  return event?.payload?.message
+    || event?.payload?.error?.message
+    || event?.payload?.errorMessage
+    || 'AI 助教生成失败'
 }
 
-function finishNativeStream(requestId, action) {
-  const pending = nativeAiStreams.get(requestId)
-  if (!pending) {
-    return
+export async function createAiTutorCompletion({
+  questionId,
+  input,
+  conversationId = null,
+  model,
+  effort,
+  signal,
+  onAccepted,
+  onDelta,
+}) {
+  if (signal?.aborted) {
+    throw abortError()
   }
-  nativeAiStreams.delete(requestId)
-  pending.signal?.removeEventListener('abort', pending.abortHandler)
-  action(pending)
-}
 
-if (typeof window !== 'undefined') {
-  window.__onAndroidAiStream = (event) => {
-    const payload = typeof event === 'string' ? JSON.parse(event) : event
-    const pending = nativeAiStreams.get(payload?.requestId)
-    if (!pending) {
-      return
-    }
-
-    if (payload.type === 'delta') {
-      const text = typeof payload.text === 'string' ? payload.text : ''
-      if (text) {
-        pending.content += text
-        pending.onDelta?.(text, pending.content)
-      }
-      return
-    }
-    if (payload.type === 'complete') {
-      finishNativeStream(payload.requestId, (stream) => {
-        if (!stream.content.trim()) {
-          stream.reject(new Error('大模型流式响应中没有可展示的文本'))
-          return
-        }
-        stream.resolve(stream.content.trim())
-      })
-      return
-    }
-    if (payload.type === 'error') {
-      finishNativeStream(payload.requestId, (stream) => {
-        stream.reject(new Error(payload.message || 'Android 原生大模型请求失败'))
-      })
+  let accepted = null
+  let answer = ''
+  let terminalStatus = ''
+  let terminalError = ''
+  const cancelAcceptedRun = () => {
+    if (accepted?.runId) {
+      cancelAiTutorRun(accepted.runId).catch(() => {})
     }
   }
-}
+  signal?.addEventListener('abort', cancelAcceptedRun, { once: true })
 
-function createAndroidChatCompletion(endpoint, apiKey, requestBody, { signal, onDelta }) {
-  return new Promise((resolve, reject) => {
-    const requestId = `ai-${Date.now()}-${nativeRequestSequence++}`
-    const abortHandler = () => {
-      if (!nativeAiStreams.has(requestId)) {
-        return
-      }
-      nativeAiStreams.delete(requestId)
-      try {
-        window.AndroidBridge.cancelAiChatStream(requestId)
-      } catch {
-        // The Activity may already be closing.
-      }
-      reject(abortError())
-    }
+  try {
+    accepted = await createAiTutorRun({
+      clientRequestId: createUuid(),
+      conversationId,
+      questionId,
+      input,
+      model,
+      reasoningEffort: effort,
+    }, { signal })
+    onAccepted?.(accepted)
 
     if (signal?.aborted) {
-      reject(abortError())
-      return
+      cancelAcceptedRun()
+      throw abortError()
     }
 
-    nativeAiStreams.set(requestId, {
-      abortHandler,
-      content: '',
-      onDelta,
-      reject,
-      resolve,
+    await streamAiTutorRun(accepted.runId, {
       signal,
-    })
-    signal?.addEventListener('abort', abortHandler, { once: true })
-
-    try {
-      window.AndroidBridge.startAiChatStream(
-        requestId,
-        endpoint,
-        apiKey,
-        JSON.stringify(requestBody),
-      )
-    } catch (error) {
-      finishNativeStream(requestId, (stream) => {
-        stream.reject(new Error(error?.message || '无法调用 Android 原生大模型请求'))
-      })
-    }
-  })
-}
-
-function parseJsonError(text, status) {
-  try {
-    const payload = JSON.parse(text)
-    return payload?.error?.message || payload?.message || `大模型请求失败（HTTP ${status}）`
-  } catch {
-    return text.trim() || `大模型请求失败（HTTP ${status}）`
-  }
-}
-
-async function createBrowserChatCompletion(endpoint, apiKey, requestBody, { signal, onDelta }) {
-  let response
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
+      onEvent: (event) => {
+        if (event?.type === 'item.delta' && typeof event?.payload?.delta === 'string') {
+          answer += event.payload.delta
+          onDelta?.(event.payload.delta, answer)
+          return true
+        }
+        if (event?.type === 'run.completed') {
+          terminalStatus = event.type
+          return false
+        }
+        if (['run.failed', 'run.cancelled', 'run.timed_out'].includes(event?.type)) {
+          terminalStatus = event.type
+          terminalError = terminalMessage(event)
+          return false
+        }
+        return true
       },
-      body: JSON.stringify(requestBody),
-      signal,
     })
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      throw error
+
+    if (terminalStatus !== 'run.completed') {
+      throw new Error(terminalError || 'AI 助教事件流意外中断')
     }
-    throw new Error('无法连接大模型服务，请检查请求地址、网络或服务端 CORS 设置')
-  }
-
-  if (!response.ok) {
-    throw new Error(parseJsonError(await response.text(), response.status))
-  }
-
-  if (response.headers.get('content-type')?.includes('application/json')) {
-    const answer = assistantContent(await response.json())
-    onDelta?.(answer, answer)
-    return answer
-  }
-  if (!response.body) {
-    throw new Error('当前环境无法读取大模型流式响应')
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let answer = ''
-
-  const consumeEvent = (eventBlock) => {
-    const data = eventBlock
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).trim())
-      .join('\n')
-      .trim()
-    if (!data || data === '[DONE]') {
-      return data === '[DONE]'
+    if (!answer.trim()) {
+      throw new Error('AI 助教没有返回可展示的内容')
     }
-    const delta = streamChunkContent(JSON.parse(data))
-    if (delta) {
-      answer += delta
-      onDelta?.(delta, answer)
-    }
-    return false
+    return answer.trim()
+  } finally {
+    signal?.removeEventListener('abort', cancelAcceptedRun)
   }
-
-  while (true) {
-    const { value, done } = await reader.read()
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-    const events = buffer.split(/\r?\n\r?\n/)
-    buffer = events.pop() || ''
-    let completed = false
-    for (const eventBlock of events) {
-      completed = consumeEvent(eventBlock) || completed
-    }
-    if (done || completed) {
-      break
-    }
-  }
-  if (buffer.trim()) {
-    consumeEvent(buffer)
-  }
-  if (!answer.trim()) {
-    throw new Error('大模型流式响应中没有可展示的文本')
-  }
-  return answer.trim()
-}
-
-export async function createAiChatCompletion(messages, { signal, onDelta } = {}) {
-  const settings = getAiSettings()
-  validateAiSettings(settings)
-
-  const requestBody = {
-    model: settings.model,
-    messages,
-    stream: true,
-  }
-  if (settings.effort) {
-    requestBody.reasoning_effort = settings.effort
-  }
-  const endpoint = chatCompletionsUrl(settings.baseUrl)
-
-  if (isAndroidStreamingAvailable()) {
-    return createAndroidChatCompletion(endpoint, settings.apiKey, requestBody, { signal, onDelta })
-  }
-  return createBrowserChatCompletion(endpoint, settings.apiKey, requestBody, { signal, onDelta })
 }
