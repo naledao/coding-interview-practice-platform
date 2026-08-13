@@ -68,7 +68,7 @@ const errorMessage = ref('')
 const noticeMessage = ref('')
 const keyword = ref('')
 const difficulty = ref('')
-const tagId = ref('')
+const selectedTagIds = ref([])
 const mode = ref('RANDOM')
 const excludeAnswered = ref(false)
 const answeredInSession = ref(0)
@@ -156,13 +156,16 @@ const splitStyle = computed(() => {
 onMounted(async () => {
   const query = getQuery()
   const queryMode = query.get('mode')
-  const queryTagId = query.get('tagId')
+  const queryTagIds = normalizeTagIds([
+    ...query.getAll('tagIds'),
+    query.get('tagId'),
+  ])
   const queryQuestionId = query.get('questionId')
   if (queryMode) {
     mode.value = queryMode
   }
-  if (queryTagId) {
-    tagId.value = queryTagId
+  if (queryTagIds.length) {
+    selectedTagIds.value = queryTagIds
   }
   timerId = window.setInterval(() => {
     now.value = Date.now()
@@ -204,7 +207,7 @@ async function loadQuestionSummary() {
     const result = await fetchPracticeQuestionCount({
       mode: mode.value,
       difficulty: difficulty.value,
-      tagId: tagId.value,
+      tagIds: selectedTagIds.value,
       keyword: keyword.value,
       excludeAnswered: excludeAnswered.value,
     })
@@ -225,7 +228,7 @@ async function loadTags() {
 }
 
 async function applyFilters() {
-  if (mode.value === 'TAG' && !tagId.value) {
+  if (mode.value === 'TAG' && selectedTagIds.value.length === 0) {
     selectedQuestion.value = null
     noticeMessage.value = '请选择标签后开始标签刷题'
     return false
@@ -236,6 +239,26 @@ async function applyFilters() {
 
 function setMode(nextMode) {
   mode.value = nextMode
+}
+
+function normalizeTagIds(values) {
+  return [...new Set(
+    (values || [])
+      .flatMap((value) => String(value || '').split(','))
+      .map((value) => value.trim())
+      .filter((value) => /^[1-9]\d*$/.test(value)),
+  )]
+}
+
+function isTagSelected(tagId) {
+  return selectedTagIds.value.includes(String(tagId))
+}
+
+function toggleTag(tagId) {
+  const normalizedTagId = String(tagId)
+  selectedTagIds.value = isTagSelected(normalizedTagId)
+    ? selectedTagIds.value.filter((selectedTagId) => selectedTagId !== normalizedTagId)
+    : [...selectedTagIds.value, normalizedTagId]
 }
 
 async function toggleFavorite() {
@@ -300,7 +323,7 @@ async function loadNextQuestion({ fromCurrent = true } = {}) {
     const question = await fetchNextPracticeQuestion({
       mode: mode.value,
       difficulty: difficulty.value,
-      tagId: tagId.value,
+      tagIds: selectedTagIds.value,
       keyword: keyword.value,
       excludeAnswered: excludeAnswered.value,
       currentQuestionId: fromCurrent ? selectedQuestion.value?.id : '',
@@ -395,7 +418,7 @@ async function startPracticeFromSettings() {
 async function resetSettings() {
   mode.value = 'RANDOM'
   difficulty.value = ''
-  tagId.value = ''
+  selectedTagIds.value = []
   keyword.value = ''
   excludeAnswered.value = false
   await applyFilters()
@@ -886,14 +909,25 @@ function stopAiGeneration() {
         </button>
 
         <div class="practice-main-stack">
-          <button
-            class="primary-button practice-main-action"
-            type="button"
-            :disabled="submitting || loadingDetail || !selectedQuestion || (!answerResult && !selectedOptionKey)"
-            @click="answerResult ? loadNextQuestion() : submitAnswer()"
-          >
-            {{ answerResult ? '下一题' : '提交答案' }}
-          </button>
+          <div class="practice-main-actions" :class="{ 'practice-main-actions-single': answerResult }">
+            <button
+              class="primary-button practice-main-action"
+              type="button"
+              :disabled="submitting || loadingDetail || !selectedQuestion || (!answerResult && !selectedOptionKey)"
+              @click="answerResult ? loadNextQuestion() : submitAnswer()"
+            >
+              {{ answerResult ? '下一题' : '提交答案' }}
+            </button>
+            <button
+              v-if="!answerResult"
+              class="secondary-button practice-skip-action"
+              type="button"
+              :disabled="submitting || loadingDetail || !selectedQuestion"
+              @click="loadNextQuestion()"
+            >
+              下一题
+            </button>
+          </div>
           <span v-if="answerResult" class="practice-session-line">
             本轮 {{ answeredInSession }} 题 · 正确率 {{ sessionAccuracy }}
           </span>
@@ -1081,13 +1115,14 @@ function stopAiGeneration() {
         </label>
 
         <div class="settings-block">
-          <span>标签</span>
+          <span>标签{{ selectedTagIds.length ? `（已选 ${selectedTagIds.length}）` : '' }}</span>
           <div class="settings-tag-list">
             <button
               class="settings-tag"
-              :class="{ 'settings-chip-active': !tagId }"
+              :class="{ 'settings-chip-active': selectedTagIds.length === 0 }"
               type="button"
-              @click="tagId = ''"
+              :aria-pressed="selectedTagIds.length === 0"
+              @click="selectedTagIds = []"
             >
               全部
             </button>
@@ -1095,9 +1130,10 @@ function stopAiGeneration() {
               v-for="tag in tags"
               :key="tag.id"
               class="settings-tag"
-              :class="{ 'settings-chip-active': String(tagId) === String(tag.id) }"
+              :class="{ 'settings-chip-active': isTagSelected(tag.id) }"
               type="button"
-              @click="tagId = tag.id"
+              :aria-pressed="isTagSelected(tag.id)"
+              @click="toggleTag(tag.id)"
             >
               {{ tag.name }}
             </button>

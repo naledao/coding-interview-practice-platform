@@ -73,7 +73,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
                     left join q.tags filterTag
                     where q.status = :status
                       and (:difficulty is null or q.difficulty = :difficulty)
-                      and (:tagId is null or filterTag.id = :tagId)
+                      and (:filterByTags = false or filterTag.id in :tagIds)
                       and (:keyword is null
                           or q.stem like concat('%', :keyword, '%')
                           or lower(q.knowledgePoint) like lower(concat('%', :keyword, '%')))
@@ -95,7 +95,8 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
     long countPracticeQuestionIds(
             @Param("status") QuestionStatus status,
             @Param("difficulty") QuestionDifficulty difficulty,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") Collection<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("excludeAnswered") boolean excludeAnswered,
             @Param("userId") Long userId,
@@ -108,7 +109,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
             left join q.tags filterTag
             where q.status = :status
               and (:difficulty is null or q.difficulty = :difficulty)
-              and (:tagId is null or filterTag.id = :tagId)
+              and (:filterByTags = false or filterTag.id in :tagIds)
               and (:keyword is null
                   or q.stem like concat('%', :keyword, '%')
                   or lower(q.knowledgePoint) like lower(concat('%', :keyword, '%')))
@@ -130,7 +131,8 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
     List<Long> findPracticeQuestionIds(
             @Param("status") QuestionStatus status,
             @Param("difficulty") QuestionDifficulty difficulty,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") Collection<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("excludeAnswered") boolean excludeAnswered,
             @Param("userId") Long userId,
@@ -144,7 +146,7 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
             left join q.tags filterTag
             where q.status = :status
               and (:difficulty is null or q.difficulty = :difficulty)
-              and (:tagId is null or filterTag.id = :tagId)
+              and (:filterByTags = false or filterTag.id in :tagIds)
               and (:keyword is null
                   or q.stem like concat('%', :keyword, '%')
                   or lower(q.knowledgePoint) like lower(concat('%', :keyword, '%')))
@@ -166,7 +168,8 @@ public interface QuestionRepository extends JpaRepository<Question, Long> {
     List<Long> findNextPracticeQuestionIds(
             @Param("status") QuestionStatus status,
             @Param("difficulty") QuestionDifficulty difficulty,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") Collection<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("excludeAnswered") boolean excludeAnswered,
             @Param("userId") Long userId,

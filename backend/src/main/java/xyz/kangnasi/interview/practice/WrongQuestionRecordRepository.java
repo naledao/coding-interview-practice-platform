@@ -1,5 +1,6 @@
 package xyz.kangnasi.interview.practice;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -62,7 +63,7 @@ public interface WrongQuestionRecordRepository extends JpaRepository<WrongQuesti
               and wrong.mastered = false
               and q.status = :status
               and (:difficulty is null or q.difficulty = :difficulty)
-              and (:tagId is null or filterTag.id = :tagId)
+              and (:filterByTags = false or filterTag.id in :tagIds)
               and (:keyword is null
                   or q.stem like concat('%', :keyword, '%')
                   or lower(q.knowledgePoint) like lower(concat('%', :keyword, '%')))
@@ -84,7 +85,8 @@ public interface WrongQuestionRecordRepository extends JpaRepository<WrongQuesti
             @Param("userId") Long userId,
             @Param("status") QuestionStatus status,
             @Param("difficulty") QuestionDifficulty difficulty,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") Collection<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("excludeAnswered") boolean excludeAnswered,
             @Param("excludedQuestionId") Long excludedQuestionId
@@ -99,7 +101,7 @@ public interface WrongQuestionRecordRepository extends JpaRepository<WrongQuesti
               and wrong.mastered = false
               and q.status = :status
               and (:difficulty is null or q.difficulty = :difficulty)
-              and (:tagId is null or filterTag.id = :tagId)
+              and (:filterByTags = false or filterTag.id in :tagIds)
               and (:keyword is null
                   or q.stem like concat('%', :keyword, '%')
                   or lower(q.knowledgePoint) like lower(concat('%', :keyword, '%')))
@@ -122,7 +124,8 @@ public interface WrongQuestionRecordRepository extends JpaRepository<WrongQuesti
             @Param("userId") Long userId,
             @Param("status") QuestionStatus status,
             @Param("difficulty") QuestionDifficulty difficulty,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") Collection<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("excludeAnswered") boolean excludeAnswered,
             @Param("excludedQuestionId") Long excludedQuestionId,
@@ -138,7 +141,7 @@ public interface WrongQuestionRecordRepository extends JpaRepository<WrongQuesti
               and wrong.mastered = false
               and q.status = :status
               and (:difficulty is null or q.difficulty = :difficulty)
-              and (:tagId is null or filterTag.id = :tagId)
+              and (:filterByTags = false or filterTag.id in :tagIds)
               and (:keyword is null
                   or q.stem like concat('%', :keyword, '%')
                   or lower(q.knowledgePoint) like lower(concat('%', :keyword, '%')))
@@ -161,7 +164,8 @@ public interface WrongQuestionRecordRepository extends JpaRepository<WrongQuesti
             @Param("userId") Long userId,
             @Param("status") QuestionStatus status,
             @Param("difficulty") QuestionDifficulty difficulty,
-            @Param("tagId") Long tagId,
+            @Param("tagIds") Collection<Long> tagIds,
+            @Param("filterByTags") boolean filterByTags,
             @Param("keyword") String keyword,
             @Param("excludeAnswered") boolean excludeAnswered,
             @Param("currentQuestionId") Long currentQuestionId,

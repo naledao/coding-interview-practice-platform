@@ -187,6 +187,54 @@ class QuestionControllerTest {
     }
 
     @Test
+    void practiceCanFilterByMultipleTagsWithOrSemanticsAndSkipWithoutAnswering() throws Exception {
+        String token = tokenFor("multi-tag-practice-" + System.nanoTime() + "@example.com");
+        String suffix = String.valueOf(System.nanoTime());
+        QuestionTag firstTag = createTag("多标签甲" + suffix, "multi-tag-a-" + suffix, TagCategory.JAVA);
+        QuestionTag secondTag = createTag("多标签乙" + suffix, "multi-tag-b-" + suffix, TagCategory.FRAMEWORK);
+        QuestionTag unrelatedTag = createTag("多标签丙" + suffix, "multi-tag-c-" + suffix, TagCategory.MIDDLEWARE);
+        Question first = createQuestion("第一道多标签筛选题目？", QuestionDifficulty.MEDIUM, List.of(firstTag));
+        Question second = createQuestion("第二道多标签筛选题目？", QuestionDifficulty.MEDIUM, List.of(secondTag));
+        createQuestion("不应命中的多标签筛选题目？", QuestionDifficulty.MEDIUM, List.of(unrelatedTag));
+
+        mockMvc.perform(get("/api/practice/count")
+                        .param("mode", "TAG")
+                        .param("tagIds", String.valueOf(firstTag.getId()), String.valueOf(secondTag.getId()))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(2));
+
+        mockMvc.perform(get("/api/practice/next")
+                        .param("mode", "SEQUENTIAL")
+                        .param("tagIds", String.valueOf(firstTag.getId()), String.valueOf(secondTag.getId()))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(first.getId()))
+                .andExpect(jsonPath("$.data.answered").value(false));
+
+        mockMvc.perform(get("/api/practice/next")
+                        .param("mode", "SEQUENTIAL")
+                        .param("tagIds", String.valueOf(firstTag.getId()), String.valueOf(secondTag.getId()))
+                        .param("currentQuestionId", String.valueOf(first.getId()))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(second.getId()))
+                .andExpect(jsonPath("$.data.answered").value(false));
+
+        mockMvc.perform(get("/api/questions/{questionId}", first.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.answered").value(false));
+
+        mockMvc.perform(get("/api/practice/count")
+                        .param("mode", "TAG")
+                        .param("tagId", String.valueOf(firstTag.getId()))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1));
+    }
+
+    @Test
     void userCanExcludeQuestionsFromEveryPracticeModeAndRestoreThem() throws Exception {
         String suffix = String.valueOf(System.nanoTime());
         String token = tokenFor("excluded-question-" + suffix + "@example.com");

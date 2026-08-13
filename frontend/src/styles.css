@@ -1773,6 +1773,21 @@ button {
     font-size: 12px;
   }
 
+  .ai-panel-open .practice-main-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(48px, 0.8fr);
+    gap: 3px;
+  }
+
+  .ai-panel-open .practice-main-actions-single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-panel-open .practice-skip-action {
+    min-height: 54px;
+    padding-inline: 2px;
+    font-size: 11px;
+  }
+
   .ai-panel-open .practice-session-line {
     font-size: 9px;
   }
@@ -1860,7 +1875,8 @@ button {
   }
 
   .ai-panel-open .bottom-tool-button,
-  .ai-panel-open .practice-main-action {
+  .ai-panel-open .practice-main-action,
+  .ai-panel-open .practice-skip-action {
     min-height: 48px;
   }
 
@@ -1870,6 +1886,10 @@ button {
 
   .ai-panel-open .practice-main-action {
     font-size: 10px;
+  }
+
+  .ai-panel-open .practice-skip-action {
+    font-size: 9px;
   }
 }
 
@@ -2299,6 +2319,22 @@ button {
 .practice-main-action {
   min-height: 64px;
   font-size: 18px;
+}
+
+.practice-main-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(88px, 1fr);
+  gap: 8px;
+}
+
+.practice-main-actions-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.practice-skip-action {
+  min-height: 64px;
+  padding-inline: 12px;
+  font-size: 16px;
 }
 
 .practice-main-stack {
@@ -3161,6 +3197,21 @@ button {
     min-height: 54px;
     padding-inline: 4px;
     font-size: 12px;
+  }
+
+  .ai-panel-open .practice-main-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(48px, 0.8fr);
+    gap: 3px;
+  }
+
+  .ai-panel-open .practice-main-actions-single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-panel-open .practice-skip-action {
+    min-height: 54px;
+    padding-inline: 2px;
+    font-size: 11px;
   }
 
   .ai-panel-open .practice-session-line {

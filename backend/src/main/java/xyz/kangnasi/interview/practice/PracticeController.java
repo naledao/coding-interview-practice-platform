@@ -1,5 +1,7 @@
 package xyz.kangnasi.interview.practice;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,6 +37,7 @@ public class PracticeController {
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestParam(defaultValue = "RANDOM") String mode,
             @RequestParam(required = false) QuestionDifficulty difficulty,
+            @RequestParam(required = false) List<Long> tagIds,
             @RequestParam(required = false) Long tagId,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "false") boolean excludeAnswered
@@ -43,7 +46,7 @@ public class PracticeController {
                 principal,
                 mode,
                 difficulty,
-                tagId,
+                mergeTagIds(tagIds, tagId),
                 keyword,
                 excludeAnswered
         )));
@@ -54,6 +57,7 @@ public class PracticeController {
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestParam(defaultValue = "RANDOM") String mode,
             @RequestParam(required = false) QuestionDifficulty difficulty,
+            @RequestParam(required = false) List<Long> tagIds,
             @RequestParam(required = false) Long tagId,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "false") boolean excludeAnswered,
@@ -63,10 +67,21 @@ public class PracticeController {
                 principal,
                 mode,
                 difficulty,
-                tagId,
+                mergeTagIds(tagIds, tagId),
                 keyword,
                 excludeAnswered,
                 currentQuestionId
         ));
+    }
+
+    private List<Long> mergeTagIds(List<Long> tagIds, Long legacyTagId) {
+        List<Long> mergedTagIds = new ArrayList<>();
+        if (tagIds != null) {
+            mergedTagIds.addAll(tagIds);
+        }
+        if (legacyTagId != null) {
+            mergedTagIds.add(legacyTagId);
+        }
+        return mergedTagIds;
     }
 }

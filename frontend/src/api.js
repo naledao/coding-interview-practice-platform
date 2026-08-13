@@ -331,6 +331,7 @@ export function removeWrongQuestion(questionId) {
 export function fetchNextPracticeQuestion({
   mode = 'RANDOM',
   difficulty = '',
+  tagIds = [],
   tagId = '',
   keyword = '',
   excludeAnswered = false,
@@ -343,9 +344,7 @@ export function fetchNextPracticeQuestion({
   if (difficulty) {
     params.set('difficulty', difficulty)
   }
-  if (tagId) {
-    params.set('tagId', String(tagId))
-  }
+  appendPracticeTagIds(params, tagIds, tagId)
   if (keyword?.trim()) {
     params.set('keyword', keyword.trim())
   }
@@ -358,6 +357,7 @@ export function fetchNextPracticeQuestion({
 export function fetchPracticeQuestionCount({
   mode = 'RANDOM',
   difficulty = '',
+  tagIds = [],
   tagId = '',
   keyword = '',
   excludeAnswered = false,
@@ -369,13 +369,25 @@ export function fetchPracticeQuestionCount({
   if (difficulty) {
     params.set('difficulty', difficulty)
   }
-  if (tagId) {
-    params.set('tagId', String(tagId))
-  }
+  appendPracticeTagIds(params, tagIds, tagId)
   if (keyword?.trim()) {
     params.set('keyword', keyword.trim())
   }
   return apiRequest(`/api/practice/count?${params}`)
+}
+
+function appendPracticeTagIds(params, tagIds, legacyTagId) {
+  const candidates = Array.isArray(tagIds) ? [...tagIds] : [tagIds]
+  if (candidates.every((tagId) => !tagId) && legacyTagId) {
+    candidates.push(legacyTagId)
+  }
+  new Set(
+    candidates
+      .map((tagId) => String(tagId ?? '').trim())
+      .filter(Boolean),
+  ).forEach((tagId) => {
+    params.append('tagIds', tagId)
+  })
 }
 
 export function answerQuestion(questionId, { selectedOptionKey, mode = 'RANDOM', timeSpentSeconds = null } = {}) {

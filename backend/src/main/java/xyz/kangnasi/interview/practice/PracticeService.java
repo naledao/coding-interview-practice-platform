@@ -32,6 +32,7 @@ import xyz.kangnasi.interview.user.UserRepository;
 public class PracticeService {
 
     private static final PageRequest SINGLE_RESULT = PageRequest.of(0, 1);
+    private static final List<Long> NO_TAG_FILTER_VALUES = List.of(-1L);
 
     private final QuestionRepository questionRepository;
     private final PracticeAnswerRecordRepository answerRecordRepository;
@@ -128,20 +129,29 @@ public class PracticeService {
             UserPrincipal principal,
             String modeText,
             QuestionDifficulty difficulty,
-            Long tagId,
+            List<Long> tagIds,
             String keyword,
             boolean excludeAnswered
     ) {
         Long userId = requireUserId(principal);
         PracticeMode mode = normalizeMode(modeText);
-        Long normalizedTagId = normalizeOptionalId(tagId, "tagId 参数错误");
+        List<Long> normalizedTagIds = normalizeTagIds(tagIds);
         String normalizedKeyword = normalizeKeyword(keyword);
 
-        if (mode == PracticeMode.TAG && normalizedTagId == null) {
+        if (mode == PracticeMode.TAG && normalizedTagIds.isEmpty()) {
             throw AppException.badRequest("请选择标签");
         }
 
-        return countQuestionIds(userId, mode, difficulty, normalizedTagId, normalizedKeyword, excludeAnswered, null);
+        return countQuestionIds(
+                userId,
+                mode,
+                difficulty,
+                queryTagIds(normalizedTagIds),
+                !normalizedTagIds.isEmpty(),
+                normalizedKeyword,
+                excludeAnswered,
+                null
+        );
     }
 
     @Transactional(readOnly = true)
@@ -149,21 +159,30 @@ public class PracticeService {
             UserPrincipal principal,
             String modeText,
             QuestionDifficulty difficulty,
-            Long tagId,
+            List<Long> tagIds,
             String keyword,
             boolean excludeAnswered,
             Long currentQuestionId
     ) {
         Long userId = requireUserId(principal);
         PracticeMode mode = normalizeMode(modeText);
-        Long normalizedTagId = normalizeOptionalId(tagId, "tagId 参数错误");
+        List<Long> normalizedTagIds = normalizeTagIds(tagIds);
         String normalizedKeyword = normalizeKeyword(keyword);
 
-        if (mode == PracticeMode.TAG && normalizedTagId == null) {
+        if (mode == PracticeMode.TAG && normalizedTagIds.isEmpty()) {
             throw AppException.badRequest("请选择标签");
         }
 
-        Long nextQuestionId = findNextQuestionId(userId, mode, difficulty, normalizedTagId, normalizedKeyword, excludeAnswered, currentQuestionId);
+        Long nextQuestionId = findNextQuestionId(
+                userId,
+                mode,
+                difficulty,
+                queryTagIds(normalizedTagIds),
+                !normalizedTagIds.isEmpty(),
+                normalizedKeyword,
+                excludeAnswered,
+                currentQuestionId
+        );
         if (nextQuestionId == null) {
             return null;
         }
@@ -219,26 +238,28 @@ public class PracticeService {
             Long userId,
             PracticeMode mode,
             QuestionDifficulty difficulty,
-            Long tagId,
+            List<Long> tagIds,
+            boolean filterByTags,
             String keyword,
             boolean excludeAnswered,
             Long currentQuestionId
     ) {
         if (mode == PracticeMode.RANDOM) {
-            return findRandomQuestionId(userId, difficulty, tagId, keyword, excludeAnswered, currentQuestionId);
+            return findRandomQuestionId(userId, difficulty, tagIds, filterByTags, keyword, excludeAnswered, currentQuestionId);
         }
-        Long nextQuestionId = findSequentialQuestionId(userId, mode, difficulty, tagId, keyword, excludeAnswered, currentQuestionId);
+        Long nextQuestionId = findSequentialQuestionId(userId, mode, difficulty, tagIds, filterByTags, keyword, excludeAnswered, currentQuestionId);
         if (nextQuestionId != null || currentQuestionId == null) {
             return nextQuestionId;
         }
-        return findSequentialQuestionId(userId, mode, difficulty, tagId, keyword, excludeAnswered, null);
+        return findSequentialQuestionId(userId, mode, difficulty, tagIds, filterByTags, keyword, excludeAnswered, null);
     }
 
     private Long findSequentialQuestionId(
             Long userId,
             PracticeMode mode,
             QuestionDifficulty difficulty,
-            Long tagId,
+            List<Long> tagIds,
+            boolean filterByTags,
             String keyword,
             boolean excludeAnswered,
             Long currentQuestionId
@@ -248,7 +269,8 @@ public class PracticeService {
                     userId,
                     QuestionStatus.ACTIVE,
                     difficulty,
-                    tagId,
+                    tagIds,
+                    filterByTags,
                     keyword,
                     excludeAnswered,
                     currentQuestionId,
@@ -260,7 +282,8 @@ public class PracticeService {
                     userId,
                     QuestionStatus.ACTIVE,
                     difficulty,
-                    tagId,
+                    tagIds,
+                    filterByTags,
                     keyword,
                     excludeAnswered,
                     currentQuestionId,
@@ -270,7 +293,8 @@ public class PracticeService {
         return firstOrNull(questionRepository.findNextPracticeQuestionIds(
                 QuestionStatus.ACTIVE,
                 difficulty,
-                tagId,
+                tagIds,
+                filterByTags,
                 keyword,
                 excludeAnswered,
                 userId,
@@ -282,29 +306,31 @@ public class PracticeService {
     private Long findRandomQuestionId(
             Long userId,
             QuestionDifficulty difficulty,
-            Long tagId,
+            List<Long> tagIds,
+            boolean filterByTags,
             String keyword,
             boolean excludeAnswered,
             Long currentQuestionId
     ) {
         Long excludedQuestionId = currentQuestionId == null ? null : currentQuestionId;
-        long candidateCount = countQuestionIds(userId, PracticeMode.RANDOM, difficulty, tagId, keyword, excludeAnswered, excludedQuestionId);
+        long candidateCount = countQuestionIds(userId, PracticeMode.RANDOM, difficulty, tagIds, filterByTags, keyword, excludeAnswered, excludedQuestionId);
         if (candidateCount == 0 && excludedQuestionId != null) {
             excludedQuestionId = null;
-            candidateCount = countQuestionIds(userId, PracticeMode.RANDOM, difficulty, tagId, keyword, excludeAnswered, null);
+            candidateCount = countQuestionIds(userId, PracticeMode.RANDOM, difficulty, tagIds, filterByTags, keyword, excludeAnswered, null);
         }
         if (candidateCount == 0) {
             return null;
         }
         int offset = ThreadLocalRandom.current().nextInt(Math.toIntExact(candidateCount));
-        return firstOrNull(findQuestionIds(userId, PracticeMode.RANDOM, difficulty, tagId, keyword, excludeAnswered, excludedQuestionId, PageRequest.of(offset, 1)));
+        return firstOrNull(findQuestionIds(userId, PracticeMode.RANDOM, difficulty, tagIds, filterByTags, keyword, excludeAnswered, excludedQuestionId, PageRequest.of(offset, 1)));
     }
 
     private long countQuestionIds(
             Long userId,
             PracticeMode mode,
             QuestionDifficulty difficulty,
-            Long tagId,
+            List<Long> tagIds,
+            boolean filterByTags,
             String keyword,
             boolean excludeAnswered,
             Long excludedQuestionId
@@ -314,7 +340,8 @@ public class PracticeService {
                     userId,
                     QuestionStatus.ACTIVE,
                     difficulty,
-                    tagId,
+                    tagIds,
+                    filterByTags,
                     keyword,
                     excludeAnswered,
                     excludedQuestionId
@@ -325,7 +352,8 @@ public class PracticeService {
                     userId,
                     QuestionStatus.ACTIVE,
                     difficulty,
-                    tagId,
+                    tagIds,
+                    filterByTags,
                     keyword,
                     excludeAnswered,
                     excludedQuestionId
@@ -334,7 +362,8 @@ public class PracticeService {
         return questionRepository.countPracticeQuestionIds(
                 QuestionStatus.ACTIVE,
                 difficulty,
-                tagId,
+                tagIds,
+                filterByTags,
                 keyword,
                 excludeAnswered,
                 userId,
@@ -346,7 +375,8 @@ public class PracticeService {
             Long userId,
             PracticeMode mode,
             QuestionDifficulty difficulty,
-            Long tagId,
+            List<Long> tagIds,
+            boolean filterByTags,
             String keyword,
             boolean excludeAnswered,
             Long excludedQuestionId,
@@ -357,7 +387,8 @@ public class PracticeService {
                     userId,
                     QuestionStatus.ACTIVE,
                     difficulty,
-                    tagId,
+                    tagIds,
+                    filterByTags,
                     keyword,
                     excludeAnswered,
                     excludedQuestionId,
@@ -369,7 +400,8 @@ public class PracticeService {
                     userId,
                     QuestionStatus.ACTIVE,
                     difficulty,
-                    tagId,
+                    tagIds,
+                    filterByTags,
                     keyword,
                     excludeAnswered,
                     excludedQuestionId,
@@ -379,7 +411,8 @@ public class PracticeService {
         return questionRepository.findPracticeQuestionIds(
                 QuestionStatus.ACTIVE,
                 difficulty,
-                tagId,
+                tagIds,
+                filterByTags,
                 keyword,
                 excludeAnswered,
                 userId,
@@ -462,6 +495,20 @@ public class PracticeService {
             throw AppException.badRequest(message);
         }
         return value;
+    }
+
+    private List<Long> normalizeTagIds(List<Long> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) {
+            return List.of();
+        }
+        return tagIds.stream()
+                .map(tagId -> normalizeOptionalId(tagId, "标签参数错误"))
+                .distinct()
+                .toList();
+    }
+
+    private List<Long> queryTagIds(List<Long> tagIds) {
+        return tagIds.isEmpty() ? NO_TAG_FILTER_VALUES : tagIds;
     }
 
     private String normalizeKeyword(String keyword) {
