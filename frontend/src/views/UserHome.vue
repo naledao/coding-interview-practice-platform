@@ -11,12 +11,15 @@ import {
   GripHorizontal,
   MessageSquareQuote,
   PanelRightClose,
+  Plus,
   RefreshCw,
   Search,
   Send,
   Settings,
   Star,
   StarOff,
+  Trash2,
+  X,
   XCircle,
 } from '@lucide/vue'
 import {
@@ -47,10 +50,14 @@ defineProps({
 
 const SPLIT_STORAGE_KEY = 'practice-ai-split-percent'
 const AI_INPUT_HEIGHT_STORAGE_KEY = 'practice-ai-input-height'
+const AI_QUICK_PHRASES_STORAGE_KEY = 'practice-ai-quick-phrases-v1'
+const MAX_AI_QUICK_PHRASES = 30
+const MAX_AI_QUICK_PHRASE_LENGTH = 500
 const SPLITTER_WIDTH = 12
 const MIN_PANE_WIDTH = 124
 const MIN_AI_INPUT_HEIGHT = 82
 const DEFAULT_AI_INPUT_HEIGHT = 112
+const androidApp = isAndroidApp()
 
 const tags = ref([])
 const selectedQuestion = ref(null)
@@ -86,6 +93,11 @@ const aiModelName = ref(initialAiSettings.model)
 const aiEffort = ref(initialAiSettings.effort)
 const aiConversationId = ref(null)
 const aiMessageList = ref(null)
+const aiQuickPhrases = ref(androidApp ? loadAiQuickPhrases() : [])
+const aiQuickPhraseDraft = ref('')
+const aiQuickPhraseError = ref('')
+const aiQuickPhraseInput = ref(null)
+const aiQuickPhraseManagerOpen = ref(false)
 const practicePage = ref(null)
 const aiInputHeight = ref(loadAiInputHeight())
 const aiInputResizing = ref(false)
@@ -100,7 +112,6 @@ let aiInputResizeStartHeight = 0
 let aiInputResizeStartY = 0
 let splitPointerId = null
 let nextAiMessageId = 1
-const androidApp = isAndroidApp()
 
 const correctOptionKey = computed(() => answerResult.value?.correctOptionKey || '')
 const currentQuestionNumber = computed(() => Math.max(1, answeredInSession.value + (answerResult.value ? 0 : 1)))
@@ -662,6 +673,100 @@ function resetAiInputHeight() {
   setAiInputHeight(DEFAULT_AI_INPUT_HEIGHT, true)
 }
 
+function normalizeAiQuickPhrase(value) {
+  return typeof value === 'string' ? value.trim().slice(0, MAX_AI_QUICK_PHRASE_LENGTH) : ''
+}
+
+function loadAiQuickPhrases() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(AI_QUICK_PHRASES_STORAGE_KEY) || '[]')
+    if (!Array.isArray(saved)) {
+      return []
+    }
+    return [...new Set(saved.map(normalizeAiQuickPhrase).filter(Boolean))]
+      .slice(0, MAX_AI_QUICK_PHRASES)
+  } catch {
+    return []
+  }
+}
+
+function persistAiQuickPhrases(phrases) {
+  try {
+    window.localStorage.setItem(AI_QUICK_PHRASES_STORAGE_KEY, JSON.stringify(phrases))
+  } catch {
+    throw new Error('常用语保存失败，请检查应用存储空间')
+  }
+}
+
+async function openAiQuickPhraseManager() {
+  aiQuickPhraseError.value = ''
+  aiQuickPhraseManagerOpen.value = true
+  await nextTick()
+  if (!aiQuickPhrases.value.length) {
+    aiQuickPhraseInput.value?.focus()
+  }
+}
+
+function closeAiQuickPhraseManager() {
+  aiQuickPhraseManagerOpen.value = false
+  aiQuickPhraseDraft.value = ''
+  aiQuickPhraseError.value = ''
+}
+
+async function saveAiQuickPhrase() {
+  const phrase = normalizeAiQuickPhrase(aiQuickPhraseDraft.value)
+  aiQuickPhraseError.value = ''
+  if (!phrase) {
+    aiQuickPhraseError.value = '请输入要保存的常用语'
+    return
+  }
+  if (aiQuickPhrases.value.includes(phrase)) {
+    aiQuickPhraseError.value = '这条常用语已经保存过了'
+    return
+  }
+  if (aiQuickPhrases.value.length >= MAX_AI_QUICK_PHRASES) {
+    aiQuickPhraseError.value = `最多保存 ${MAX_AI_QUICK_PHRASES} 条常用语，请先删除不需要的内容`
+    return
+  }
+
+  const nextPhrases = [phrase, ...aiQuickPhrases.value]
+  try {
+    persistAiQuickPhrases(nextPhrases)
+    aiQuickPhrases.value = nextPhrases
+    aiQuickPhraseDraft.value = ''
+    await nextTick()
+    aiQuickPhraseInput.value?.focus()
+  } catch (error) {
+    aiQuickPhraseError.value = error.message
+  }
+}
+
+function deleteAiQuickPhrase(phrase) {
+  const singleLinePhrase = phrase.replace(/\s+/g, ' ')
+  const preview = singleLinePhrase.slice(0, 36)
+  if (!window.confirm(`确定删除常用语“${preview}${singleLinePhrase.length > preview.length ? '…' : ''}”吗？`)) {
+    return
+  }
+
+  const nextPhrases = aiQuickPhrases.value.filter((item) => item !== phrase)
+  aiQuickPhraseError.value = ''
+  try {
+    persistAiQuickPhrases(nextPhrases)
+    aiQuickPhrases.value = nextPhrases
+  } catch (error) {
+    aiQuickPhraseError.value = error.message
+  }
+}
+
+async function sendAiQuickPhrase(phrase) {
+  if (aiSending.value) {
+    return
+  }
+  aiInput.value = phrase
+  closeAiQuickPhraseManager()
+  await sendAiMessage()
+}
+
 function openAiSettings() {
   navigateTo('ai-settings.html')
 }
@@ -1023,15 +1128,29 @@ function stopAiGeneration() {
 
       <footer class="ai-chat-composer">
         <p v-if="aiErrorMessage" class="error-message ai-chat-error">{{ aiErrorMessage }}</p>
-        <button
-          class="ai-quote-button"
-          type="button"
-          :disabled="!selectedQuestion || aiSending"
-          @click="insertCurrentQuestion"
-        >
-          <MessageSquareQuote :size="17" />
-          <span>引用当前题目</span>
-        </button>
+        <div class="ai-composer-shortcuts">
+          <button
+            class="ai-quote-button"
+            type="button"
+            :disabled="!selectedQuestion || aiSending"
+            @click="insertCurrentQuestion"
+          >
+            <MessageSquareQuote :size="17" />
+            <span>引用当前题目</span>
+          </button>
+          <button
+            v-if="androidApp"
+            class="ai-quick-phrase-button"
+            type="button"
+            aria-haspopup="dialog"
+            :disabled="aiSending"
+            @click="openAiQuickPhraseManager"
+          >
+            <Star :size="17" />
+            <span>常用语</span>
+            <strong v-if="aiQuickPhrases.length">{{ aiQuickPhrases.length }}</strong>
+          </button>
+        </div>
         <div
           class="ai-chat-input-shell"
           :style="androidApp ? { height: `${aiInputHeight}px` } : undefined"
@@ -1072,6 +1191,84 @@ function stopAiGeneration() {
         </button>
       </footer>
     </aside>
+
+    <div
+      v-if="androidApp && aiQuickPhraseManagerOpen"
+      class="ai-quick-phrase-overlay"
+      @click.self="closeAiQuickPhraseManager"
+      @keydown.esc="closeAiQuickPhraseManager"
+    >
+      <section
+        class="ai-quick-phrase-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ai-quick-phrase-title"
+      >
+        <span class="sheet-handle"></span>
+        <header class="ai-quick-phrase-header">
+          <div>
+            <h2 id="ai-quick-phrase-title">常用语</h2>
+            <p>保存在当前设备，点击已有语句即可发送。</p>
+          </div>
+          <button class="icon-button" type="button" aria-label="关闭常用语" @click="closeAiQuickPhraseManager">
+            <X :size="20" />
+          </button>
+        </header>
+
+        <form class="ai-quick-phrase-form" @submit.prevent="saveAiQuickPhrase">
+          <label for="ai-quick-phrase-input">新增常用语</label>
+          <textarea
+            id="ai-quick-phrase-input"
+            ref="aiQuickPhraseInput"
+            v-model="aiQuickPhraseDraft"
+            rows="3"
+            :maxlength="MAX_AI_QUICK_PHRASE_LENGTH"
+            placeholder="例如：请逐项解释为什么其他选项不正确"
+          ></textarea>
+          <div class="ai-quick-phrase-form-footer">
+            <span>{{ aiQuickPhraseDraft.length }}/{{ MAX_AI_QUICK_PHRASE_LENGTH }} · 最多 {{ MAX_AI_QUICK_PHRASES }} 条</span>
+            <button
+              class="primary-button"
+              type="submit"
+              :disabled="!aiQuickPhraseDraft.trim() || aiQuickPhrases.length >= MAX_AI_QUICK_PHRASES"
+            >
+              <Plus :size="17" />
+              <span>保存</span>
+            </button>
+          </div>
+          <p v-if="aiQuickPhraseError" class="error-message ai-quick-phrase-error">{{ aiQuickPhraseError }}</p>
+        </form>
+
+        <div class="ai-quick-phrase-list-heading">
+          <strong>已保存</strong>
+          <span>{{ aiQuickPhrases.length }}/{{ MAX_AI_QUICK_PHRASES }}</span>
+        </div>
+        <p v-if="!aiQuickPhrases.length" class="ai-quick-phrase-empty">
+          暂无常用语，先保存一条经常向 AI 助教提问的内容吧。
+        </p>
+        <ul v-else class="ai-quick-phrase-list">
+          <li v-for="phrase in aiQuickPhrases" :key="phrase">
+            <button
+              class="ai-quick-phrase-send"
+              type="button"
+              :disabled="aiSending"
+              @click="sendAiQuickPhrase(phrase)"
+            >
+              <span>{{ phrase }}</span>
+              <small>点击发送</small>
+            </button>
+            <button
+              class="ai-quick-phrase-delete"
+              type="button"
+              :aria-label="`删除常用语：${phrase}`"
+              @click="deleteAiQuickPhrase(phrase)"
+            >
+              <Trash2 :size="18" />
+            </button>
+          </li>
+        </ul>
+      </section>
+    </div>
 
     <div v-if="settingsOpen" class="settings-overlay" @click.self="settingsOpen = false">
       <section class="practice-settings-sheet" aria-label="练习设置">

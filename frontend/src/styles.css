@@ -1722,7 +1722,7 @@ button {
   grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
     "error error"
-    "quote quote"
+    "shortcuts shortcuts"
     "send input";
   padding-bottom: 10px;
   border-top: 0;
@@ -1733,8 +1733,8 @@ button {
   grid-area: error;
 }
 
-.practice-android-app .ai-quote-button {
-  grid-area: quote;
+.practice-android-app .ai-composer-shortcuts {
+  grid-area: shortcuts;
 }
 
 .practice-android-app .ai-chat-input-shell {
@@ -1968,7 +1968,8 @@ button {
     padding: 6px 5px calc(6px + env(safe-area-inset-bottom));
   }
 
-  .ai-panel-open .ai-quote-button {
+  .ai-panel-open .ai-quote-button,
+  .ai-panel-open .ai-quick-phrase-button {
     min-height: 30px;
     padding-inline: 6px;
     font-size: 10px;
@@ -2200,10 +2201,16 @@ button {
   font-size: 12px;
 }
 
-.ai-quote-button {
+.ai-composer-shortcuts {
   grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-quote-button,
+.ai-quick-phrase-button {
   display: inline-flex;
-  justify-self: start;
   align-items: center;
   gap: 7px;
   min-height: 34px;
@@ -2214,6 +2221,25 @@ button {
   font-size: 12px;
   font-weight: 850;
   background: #effaf8;
+}
+
+.ai-quote-button:disabled,
+.ai-quick-phrase-button:disabled,
+.ai-quick-phrase-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.ai-quick-phrase-button strong {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 5px;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 10px;
+  background: #0f766e;
 }
 
 .ai-chat-input {
@@ -2299,6 +2325,182 @@ button {
   align-self: stretch;
   min-width: 84px;
   padding-inline: 12px;
+}
+
+.ai-quick-phrase-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: grid;
+  align-items: end;
+  padding-top: calc(20px + env(safe-area-inset-top));
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.ai-quick-phrase-sheet {
+  display: grid;
+  gap: 16px;
+  width: min(680px, 100%);
+  max-height: min(88vh, 760px);
+  max-height: min(88dvh, 760px);
+  margin: 0 auto;
+  padding: 12px 20px calc(20px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 12px 12px 0 0;
+  background: #ffffff;
+  box-shadow: 0 -20px 60px rgba(15, 23, 42, 0.22);
+}
+
+.ai-quick-phrase-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.ai-quick-phrase-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 22px;
+}
+
+.ai-quick-phrase-header p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ai-quick-phrase-form {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-quick-phrase-form label,
+.ai-quick-phrase-list-heading strong {
+  color: #334155;
+  font-weight: 850;
+}
+
+.ai-quick-phrase-form textarea {
+  width: 100%;
+  min-height: 78px;
+  max-height: 180px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #111827;
+  line-height: 1.5;
+  background: #ffffff;
+  outline: none;
+}
+
+.ai-quick-phrase-form textarea:focus {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.ai-quick-phrase-form-footer,
+.ai-quick-phrase-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-quick-phrase-form-footer > span,
+.ai-quick-phrase-list-heading > span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.ai-quick-phrase-form-footer .primary-button {
+  min-height: 40px;
+  padding-inline: 14px;
+}
+
+.ai-quick-phrase-error {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.ai-quick-phrase-empty {
+  margin: 0;
+  padding: 24px 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.ai-quick-phrase-list {
+  display: grid;
+  gap: 9px;
+  max-height: 320px;
+  max-height: min(320px, 35dvh);
+  margin: 0;
+  padding: 0 2px 0 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.ai-quick-phrase-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 8px;
+}
+
+.ai-quick-phrase-send {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  color: #1e293b;
+  text-align: left;
+  background: #f8fafc;
+}
+
+.ai-quick-phrase-send span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ai-quick-phrase-send small {
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ai-quick-phrase-send:hover,
+.ai-quick-phrase-send:focus-visible {
+  border-color: #0f766e;
+  background: #effaf8;
+}
+
+.ai-quick-phrase-delete {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #b42318;
+  background: #fff5f4;
+}
+
+.ai-quick-phrase-delete:hover,
+.ai-quick-phrase-delete:focus-visible {
+  border-color: #b42318;
+  background: #fee2e2;
 }
 
 .bottom-tool-button {
@@ -3366,7 +3568,8 @@ button {
     padding: 6px 5px calc(6px + env(safe-area-inset-bottom));
   }
 
-  .ai-quote-button {
+  .ai-quote-button,
+  .ai-quick-phrase-button {
     min-height: 30px;
     padding-inline: 6px;
     font-size: 10px;
